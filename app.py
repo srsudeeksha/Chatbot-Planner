@@ -1,37 +1,133 @@
+"""
+This is a Python script that serves as a frontend for a conversational AI model built with the `langchain` and Groq.
+The code creates a web application using Streamlit, a Python library for building interactive web apps.
+Modified version to use Groq instead of OpenAI.
+"""
+
+# Import necessary libraries
 import streamlit as st
-from langchain.schema import HumanMessage, AIMessage
-from langchain_groq import ChatGroq 
-import os
+from langchain.chains import ConversationChain
+from langchain.chains.conversation.memory import ConversationEntityMemory
+from langchain.chains.conversation.prompt import ENTITY_MEMORY_CONVERSATION_TEMPLATE
+from langchain_groq import ChatGroq
 
-llm = ChatGroq(
-    temperature=0.7,
-    groq_api_key=st.secrets["GROQ_API_KEY"], # Use the key name "GROQ_API_KEY"
-    model_name="llama3-8b-8192" # Or "mixtral-8x7b-32768", "gemma-7b-it", etc.
-)
+# Set Streamlit page configuration
+st.set_page_config(page_title='🧠MemoryBot🤖', layout='wide')
+# Initialize session states
+if "generated" not in st.session_state:
+    st.session_state["generated"] = []
+if "past" not in st.session_state:
+    st.session_state["past"] = []
+if "input" not in st.session_state:
+    st.session_state["input"] = ""
+if "stored_session" not in st.session_state:
+    st.session_state["stored_session"] = []
 
-# --- Streamlit App ---
-st.set_page_config(page_title="Simple Chatbot")
-st.header("Ask Me Anything!")
+# Define function to get user input
+def get_text():
+    """
+    Get the user input text.
 
-# Initialize chat history in Streamlit's session state
-if "messages" not in st.session_state:
-    st.session_state.messages = [AIMessage(content="Hello! How can I help?")]
+    Returns:
+        (str): The text entered by the user
+    """
+    input_text = st.text_input("You: ", st.session_state["input"], key="input",
+                            placeholder="Your AI assistant here! Ask me anything ...", 
+                            label_visibility='hidden')
+    return input_text
 
-# Display past messages
-for msg in st.session_state.messages:
-    st.chat_message(msg.type).write(msg.content)
+# Define function to start a new chat
+def new_chat():
+    """
+    Clears session state and starts a new chat.
+    """
+    save = []
+    for i in range(len(st.session_state['generated'])-1, -1, -1):
+        save.append("User:" + st.session_state["past"][i])
+        save.append("Bot:" + st.session_state["generated"][i])        
+    st.session_state["stored_session"].append(save)
+    st.session_state["generated"] = []
+    st.session_state["past"] = []
+    st.session_state["input"] = ""
+    st.session_state.entity_memory.entity_store = {}
+    st.session_state.entity_memory.buffer.clear()
 
-# Get user input
-user_input = st.chat_input("Your question:")
+# Set up sidebar with various options
+with st.sidebar.expander("🛠️ ", expanded=False):
+    # Option to preview memory store
+    if st.checkbox("Preview memory store"):
+        with st.expander("Memory-Store", expanded=False):
+            st.session_state.entity_memory.store
+    # Option to preview memory buffer
+    if st.checkbox("Preview memory buffer"):
+        with st.expander("Bufffer-Store", expanded=False):
+            st.session_state.entity_memory.buffer
+    MODEL = st.selectbox(label='Model', options=['mixtral-8x7b-32768', 'llama2-70b-4096'])
+    K = st.number_input(' (#)Summary of prompts to consider',min_value=3,max_value=1000)
 
+# Set up the Streamlit app layout
+st.title("🤖 Chat Bot with 🧠")
+st.subheader(" Powered by 🦜 LangChain + Groq + Streamlit")
+
+# Ask the user to enter their Groq API key
+API_O = st.sidebar.text_input("GROQ-API-KEY", type="password")
+
+# Session state storage would be ideal
+if API_O:
+    # Create a Groq instance
+    llm = ChatGroq(
+            groq_api_key=API_O, 
+            model_name=MODEL,
+            temperature=0.1
+        )
+
+    # Create a ConversationEntityMemory object if not already created
+    if 'entity_memory' not in st.session_state:
+            st.session_state.entity_memory = ConversationEntityMemory(llm=llm, k=K)
+        
+    # Create the ConversationChain object with the specified configuration
+    Conversation = ConversationChain(
+            llm=llm, 
+            prompt=ENTITY_MEMORY_CONVERSATION_TEMPLATE,
+            memory=st.session_state.entity_memory
+        )  
+else:
+    st.sidebar.warning('Groq API key required to try this app. The API key is not stored in any form.')
+    # st.stop()
+
+# Add a button to start a new chat
+st.sidebar.button("New Chat", on_click = new_chat, type='primary')
+
+# Get the user input
+user_input = get_text()
+
+# Generate the output using the ConversationChain object and the user input, and add the input/output to the session
 if user_input:
-    # Add user message to history
-    st.session_state.messages.append(HumanMessage(content=user_input))
-    st.chat_message("human").write(user_input)
+    output = Conversation.run(input=user_input)  
+    st.session_state.past.append(user_input)  
+    st.session_state.generated.append(output)  
 
-    # Get AI response
-    with st.spinner("Thinking..."):
-        ai_response = llm.invoke(st.session_state.messages)
-        # Add AI message to history
-        st.session_state.messages.append(AIMessage(content=ai_response.content))
-        st.chat_message("ai").write(ai_response.content)
+# Allow to download as well
+download_str = []
+# Display the conversation history using an expander, and allow the user to download it
+with st.expander("Conversation", expanded=True):
+    for i in range(len(st.session_state['generated'])-1, -1, -1):
+        st.info(st.session_state["past"][i],icon="🧐")
+        st.success(st.session_state["generated"][i], icon="🤖")
+        download_str.append(st.session_state["past"][i])
+        download_str.append(st.session_state["generated"][i])
+    
+    # Can throw error - requires fix
+    download_str = '\n'.join(download_str)
+    if download_str:
+        st.download_button('Download',download_str)
+
+# Display stored conversation sessions in the sidebar
+for i, sublist in enumerate(st.session_state.stored_session):
+        with st.sidebar.expander(label= f"Conversation-Session:{i}"):
+            st.write(sublist)
+
+# Allow the user to clear all stored conversation sessions
+if st.session_state.stored_session:   
+    if st.sidebar.checkbox("Clear-all"):
+        del st.session_state.stored_session
