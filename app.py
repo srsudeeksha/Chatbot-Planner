@@ -10,6 +10,9 @@ from langchain.chains import ConversationChain
 from langchain.chains.conversation.memory import ConversationEntityMemory
 from langchain.chains.conversation.prompt import ENTITY_MEMORY_CONVERSATION_TEMPLATE
 from langchain_groq import ChatGroq
+import os
+os.environ["GROQ_API_KEY"] = "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"
+
 
 # Set Streamlit page configuration
 st.set_page_config(page_title='🧠MemoryBot🤖', layout='wide')
