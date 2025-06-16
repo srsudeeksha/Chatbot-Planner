@@ -16,61 +16,202 @@ import time
 # CONFIGURATION
 # ==============================================
 DEFAULT_API_KEY = "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"
-SESSIONS_FILE = "chat_sessions.json"
+USERS_FILE = "users.json"
 st.set_page_config(page_title='ChatBot', layout='wide', initial_sidebar_state="expanded")
 
 # ==============================================
-# CUSTOM STYLING
+# USER AUTHENTICATION
+# ==============================================
+def load_users():
+    if os.path.exists(USERS_FILE):
+        with open(USERS_FILE, "r") as f:
+            try:
+                return json.load(f)
+            except json.JSONDecodeError:
+                return {}
+    return {}
+
+def save_users(users):
+    with open(USERS_FILE, "w") as f:
+        json.dump(users, f, indent=2)
+
+def signup(username, password):
+    users = load_users()
+    if username in users:
+        return False, "Username already exists."
+    users[username] = {
+        "password": password,
+        "sessions": {
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"): {
+                "generated": [],
+                "past": []
+            }
+        }
+    }
+    save_users(users)
+    return True, "Signup successful. Please login."
+
+def login(username, password):
+    users = load_users()
+    if username in users:
+        user_data = users[username]
+        if isinstance(user_data, str):
+            if user_data == password:
+                users[username] = {
+                    "password": password,
+                    "sessions": {
+                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"): {
+                            "generated": [],
+                            "past": []
+                        }
+                    }
+                }
+                save_users(users)
+                return True, "Login successful."
+        elif isinstance(user_data, dict) and user_data.get("password") == password:
+            return True, "Login successful."
+    return False, "Invalid username or password."
+
+def show_login():
+    # Custom CSS
+    st.markdown("""
+    <style>
+        [data-testid="stAppViewContainer"] {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        }
+        .login-container {
+            background: white;
+            padding: 2.5rem;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+            max-width: 500px;
+            margin: 3rem auto;
+        }
+        .login-title {
+            color: #4a6baf;
+            text-align: center;
+            font-size: 2.2rem;
+            margin-bottom: 1.5rem;
+            font-weight: 700;
+        }
+        .stTextInput>div>div>input {
+            border-radius: 8px;
+            padding: 12px;
+        }
+        .stButton>button {
+            border-radius: 8px;
+            padding: 12px 24px;
+            background: linear-gradient(45deg, #4a6baf 0%, #6a8fd8 100%);
+            color: white;
+            font-weight: 600;
+            border: none;
+            width: 100%;
+        }
+        .chat-icon {
+            text-align: center;
+            font-size: 4rem;
+            color: #4a6baf;
+            margin-bottom: 1rem;
+        }
+        .login-footer {
+            text-align: center;
+            margin-top: 2rem;
+            color: #777;
+            font-size: 0.9rem;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # Login container
+    with st.container():
+        st.markdown("""
+        <div class="login-container">
+            <div class="chat-icon">🤖</div>
+            <h1 class="login-title">Enter your details</h1>
+        </div>
+        """, unsafe_allow_html=True)
+
+        mode = st.radio(
+            "Select Mode",
+            ["Login", "Signup"],
+            horizontal=True,
+            label_visibility="collapsed"
+        )
+        
+        username = st.text_input(
+            "Username",
+            placeholder="Enter your username",
+            label_visibility="collapsed"
+        )
+        
+        password = st.text_input(
+            "Password",
+            type="password",
+            placeholder="Enter your password",
+            label_visibility="collapsed"
+        )
+        
+        if st.button(mode):
+            if mode == "Signup":
+                success, msg = signup(username, password)
+                if success:
+                    st.success(msg)
+                    time.sleep(1)
+                    st.session_state.logged_in = True
+                    st.session_state.username = username
+                    st.rerun()
+                else:
+                    st.error(msg)
+            else:
+                success, msg = login(username, password)
+                if success:
+                    st.success(msg)
+                    time.sleep(1)
+                    st.session_state.logged_in = True
+                    st.session_state.username = username
+                    st.rerun()
+                else:
+                    st.error(msg)
+        
+        st.markdown('<div class="login-footer">Secure AI Chat Platform © 2024</div>', unsafe_allow_html=True)
+
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+
+if not st.session_state.logged_in:
+    show_login()
+    st.stop()
+
+# ==============================================
+# CUSTOM STYLING FOR CHAT INTERFACE
 # ==============================================
 def apply_custom_styles():
     st.markdown("""
     <style>
-        .main {
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
-        }
+        .main { display: flex; flex-direction: column; height: 100vh; }
         .chat-container {
-            flex: 1;
-            overflow-y: auto;
-            padding: 10px 20px;
+            flex: 1; overflow-y: auto; padding: 10px 20px;
             margin-bottom: 80px;
         }
         .user-message {
-            background: #3797F0;
-            color: white;
-            padding: 10px 15px;
-            border-radius: 18px;
-            margin: 5px 0;
-            margin-left: auto;
-            max-width: 70%;
-            width: fit-content;
+            background: #3797F0; color: white; padding: 10px 15px;
+            border-radius: 18px; margin: 5px 0; margin-left: auto;
+            max-width: 70%; width: fit-content;
         }
         .bot-message {
-            background: #f0f2f6;
-            color: black;
-            padding: 10px 15px;
-            border-radius: 18px;
-            margin: 5px 0;
-            margin-right: auto;
-            max-width: 70%;
-            width: fit-content;
+            background: #f0f2f6; color: black; padding: 10px 15px;
+            border-radius: 18px; margin: 5px 0; margin-right: auto;
+            max-width: 70%; width: fit-content;
         }
         .input-container {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            padding: 15px;
-            background: white;
-            z-index: 100;
+            position: fixed; bottom: 0; left: 0; right: 0;
+            padding: 15px; background: white; z-index: 100;
             border-top: 1px solid #e0e0e0;
         }
-        .stApp {
-            overflow: hidden;
-        }
-        footer {
-            display: none;
+        .stApp { overflow: hidden; }
+        footer { display: none; }
+        .sidebar .sidebar-content {
+            background: #f8f9fa;
         }
     </style>
     """, unsafe_allow_html=True)
@@ -80,31 +221,36 @@ apply_custom_styles()
 # ==============================================
 # SESSION MANAGEMENT
 # ==============================================
-def load_sessions_from_file():
-    if os.path.exists(SESSIONS_FILE):
-        with open(SESSIONS_FILE, "r") as f:
-            return json.load(f)
+def load_user_sessions(username):
+    users = load_users()
+    if username in users:
+        user_data = users[username]
+        if isinstance(user_data, dict):
+            return user_data.get("sessions", {})
     return {}
 
-def save_sessions_to_file():
-    with open(SESSIONS_FILE, "w") as f:
-        json.dump(st.session_state.sessions, f)
+def save_user_sessions(username, sessions):
+    users = load_users()
+    if username not in users:
+        users[username] = {"password": "", "sessions": {}}
+    users[username]["sessions"] = sessions
+    save_users(users)
 
 # ==============================================
 # SESSION STATE INITIALIZATION
 # ==============================================
 def initialize_session_state():
     keys_defaults = {
-        "generated": [],
-        "past": [],
+        "generated": [], 
+        "past": [], 
         "processing": False,
-        "entity_memory": None,
-        "llm": None,
+        "entity_memory": None, 
+        "llm": None, 
         "conversation": None,
-        "sessions": load_sessions_from_file(),
         "stream_output": "",
         "streaming": False
     }
+    
     for key, default in keys_defaults.items():
         if key not in st.session_state:
             st.session_state[key] = default
@@ -112,7 +258,15 @@ def initialize_session_state():
     if "current_session" not in st.session_state:
         session_name = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         st.session_state.current_session = session_name
-        st.session_state.sessions[session_name] = {"generated": [], "past": []}
+        user_sessions = load_user_sessions(st.session_state.username)
+        if session_name not in user_sessions:
+            user_sessions[session_name] = {"generated": [], "past": []}
+            save_user_sessions(st.session_state.username, user_sessions)
+
+    user_sessions = load_user_sessions(st.session_state.username)
+    if st.session_state.current_session in user_sessions:
+        st.session_state.past = user_sessions[st.session_state.current_session].get("past", [])
+        st.session_state.generated = user_sessions[st.session_state.current_session].get("generated", [])
 
 initialize_session_state()
 
@@ -121,6 +275,9 @@ initialize_session_state()
 # ==============================================
 def sidebar_settings():
     with st.sidebar:
+        st.markdown(f"### 👋 Welcome, {st.session_state.username}!")
+        st.markdown("---")
+        
         st.markdown("### 🤖 Bot Settings")
         show_settings = st.toggle("Show Settings", value=False)
         if show_settings:
@@ -139,31 +296,39 @@ def sidebar_settings():
         if st.button("🗑️ Clear Current Chat"):
             clear_current_chat()
 
-        if st.button("📥 Export Chat"):
+        if st.button("📅 Export Chat"):
             export_chat()
+
+        if st.button("🔒 Logout"):
+            st.session_state.logged_in = False
+            st.session_state.username = ""
+            st.rerun()
 
         st.markdown("---")
         st.title("Chat Sessions")
-        for session in st.session_state.sessions:
+        user_sessions = load_user_sessions(st.session_state.username)
+        for session in user_sessions:
             if st.button(session, key=f"session_{session}"):
                 load_session(session)
 
         return MODEL, K, API_O
 
 def clear_current_chat():
+    user_sessions = load_user_sessions(st.session_state.username)
     st.session_state.past = []
     st.session_state.generated = []
-    st.session_state.sessions[st.session_state.current_session] = {"generated": [], "past": []}
+    user_sessions[st.session_state.current_session] = {"generated": [], "past": []}
+    save_user_sessions(st.session_state.username, user_sessions)
     if st.session_state.entity_memory:
         st.session_state.entity_memory.entity_store = {}
         st.session_state.entity_memory.buffer.clear()
-    save_sessions_to_file()
     st.rerun()
 
 def export_chat():
+    user_sessions = load_user_sessions(st.session_state.username)
     chat_data = {
-        "past": st.session_state.past,
-        "generated": st.session_state.generated
+        "past": user_sessions[st.session_state.current_session].get("past", []),
+        "generated": user_sessions[st.session_state.current_session].get("generated", [])
     }
     st.download_button(
         label="Download Chat",
@@ -173,27 +338,30 @@ def export_chat():
     )
 
 def load_session(session_name):
-    st.session_state.current_session = session_name
-    st.session_state.past = st.session_state.sessions[session_name]["past"]
-    st.session_state.generated = st.session_state.sessions[session_name]["generated"]
-    st.rerun()
+    user_sessions = load_user_sessions(st.session_state.username)
+    if session_name in user_sessions:
+        st.session_state.current_session = session_name
+        st.session_state.past = user_sessions[session_name].get("past", [])
+        st.session_state.generated = user_sessions[session_name].get("generated", [])
+        st.rerun()
 
 def new_session():
     session_name = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     st.session_state.current_session = session_name
-    st.session_state.sessions[session_name] = {"generated": [], "past": []}
+    user_sessions = load_user_sessions(st.session_state.username)
+    user_sessions[session_name] = {"generated": [], "past": []}
+    save_user_sessions(st.session_state.username, user_sessions)
     st.session_state.past = []
     st.session_state.generated = []
     if st.session_state.entity_memory:
         st.session_state.entity_memory.entity_store = {}
         st.session_state.entity_memory.buffer.clear()
-    save_sessions_to_file()
     st.rerun()
 
 MODEL, K, API_O = sidebar_settings()
 
 # ==============================================
-# MAIN APP
+# MAIN CHAT INTERFACE
 # ==============================================
 def initialize_llm():
     try:
@@ -217,7 +385,7 @@ def initialize_llm():
         st.error(f"API Error: {str(e)}")
 
 def run_chatbot():
-    st.title("💬Chatbot")
+    st.title("💬 ChatBot")
     chat_container = st.container()
     input_container = st.container()
 
@@ -266,9 +434,13 @@ def run_chatbot():
             st.session_state.entity_memory.chat_memory.add_ai_message(full_output)
             st.session_state.past.append(user_input)
             st.session_state.generated.append(full_output)
-            st.session_state.sessions[st.session_state.current_session]["past"] = st.session_state.past
-            st.session_state.sessions[st.session_state.current_session]["generated"] = st.session_state.generated
-            save_sessions_to_file()
+            
+            user_sessions = load_user_sessions(st.session_state.username)
+            user_sessions[st.session_state.current_session] = {
+                "past": st.session_state.past,
+                "generated": st.session_state.generated
+            }
+            save_user_sessions(st.session_state.username, user_sessions)
 
         except Exception as e:
             st.error(f"Error: {str(e)}")
