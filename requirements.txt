@@ -1,3 +1,4 @@
+#requirements 
 streamlit
 langchain
 langchain-groq
