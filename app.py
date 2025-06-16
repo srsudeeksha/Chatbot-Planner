@@ -73,7 +73,6 @@ def login(username, password):
     return False, "Invalid username or password."
 
 def show_login():
-    # Custom CSS
     st.markdown("""
     <style>
         [data-testid="stAppViewContainer"] {
@@ -94,40 +93,20 @@ def show_login():
             margin-bottom: 1.5rem;
             font-weight: 700;
         }
-        .stTextInput>div>div>input {
-            border-radius: 8px;
-            padding: 12px;
-        }
-        .stButton>button {
-            border-radius: 8px;
-            padding: 12px 24px;
-            background: linear-gradient(45deg, #4a6baf 0%, #6a8fd8 100%);
-            color: white;
-            font-weight: 600;
-            border: none;
-            width: 100%;
-        }
         .chat-icon {
             text-align: center;
             font-size: 4rem;
             color: #4a6baf;
             margin-bottom: 1rem;
         }
-        .login-footer {
-            text-align: center;
-            margin-top: 2rem;
-            color: #777;
-            font-size: 0.9rem;
-        }
     </style>
     """, unsafe_allow_html=True)
 
-    # Login container
     with st.container():
         st.markdown("""
         <div class="login-container">
-            <div class="chat-icon">🤖</div>
-            <h1 class="login-title">Enter your details</h1>
+            <div class="chat-icon">💬</div>
+            <h1 class="login-title">Welcome to ChatBot</h1>
         </div>
         """, unsafe_allow_html=True)
 
@@ -172,8 +151,6 @@ def show_login():
                     st.rerun()
                 else:
                     st.error(msg)
-        
-        st.markdown('<div class="login-footer">Secure AI Chat Platform © 2024</div>', unsafe_allow_html=True)
 
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
@@ -210,9 +187,6 @@ def apply_custom_styles():
         }
         .stApp { overflow: hidden; }
         footer { display: none; }
-        .sidebar .sidebar-content {
-            background: #f8f9fa;
-        }
     </style>
     """, unsafe_allow_html=True)
 
@@ -271,25 +245,17 @@ def initialize_session_state():
 initialize_session_state()
 
 # ==============================================
-# SIDEBAR SETTINGS
+# SIDEBAR CONTROLS (SIMPLIFIED)
 # ==============================================
-def sidebar_settings():
+# ==============================================
+# SIDEBAR CONTROLS (SIMPLIFIED)
+# ==============================================
+def sidebar_controls():
     with st.sidebar:
         st.markdown(f"### 👋 Welcome, {st.session_state.username}!")
+        st.markdown(f"**Model:** llama3-70b-8192")  # Display model name only
         st.markdown("---")
         
-        st.markdown("### 🤖 Bot Settings")
-        show_settings = st.toggle("Show Settings", value=False)
-        if show_settings:
-            MODEL = st.selectbox('Model', ['llama3-70b-8192'])
-            K = st.number_input('Memory size', min_value=3, max_value=1000, value=5)
-            API_O = st.text_input("GROQ-API-KEY", type="password", value=DEFAULT_API_KEY) or DEFAULT_API_KEY
-        else:
-            MODEL = 'llama3-70b-8192'
-            K = 5
-            API_O = DEFAULT_API_KEY
-
-        st.markdown("---")
         if st.button("+ New Chat", type='primary'):
             new_session()
 
@@ -310,8 +276,6 @@ def sidebar_settings():
         for session in user_sessions:
             if st.button(session, key=f"session_{session}"):
                 load_session(session)
-
-        return MODEL, K, API_O
 
 def clear_current_chat():
     user_sessions = load_user_sessions(st.session_state.username)
@@ -358,7 +322,7 @@ def new_session():
         st.session_state.entity_memory.buffer.clear()
     st.rerun()
 
-MODEL, K, API_O = sidebar_settings()
+sidebar_controls()
 
 # ==============================================
 # MAIN CHAT INTERFACE
@@ -366,14 +330,14 @@ MODEL, K, API_O = sidebar_settings()
 def initialize_llm():
     try:
         st.session_state.llm = ChatGroq(
-            groq_api_key=API_O,
-            model_name=MODEL,
+            groq_api_key=DEFAULT_API_KEY,
+            model_name='llama3-70b-8192',
             temperature=0.1,
             streaming=True
         )
         st.session_state.entity_memory = ConversationEntityMemory(
             llm=st.session_state.llm,
-            k=K
+            k=5
         )
         st.session_state.conversation = ConversationChain(
             llm=st.session_state.llm,
