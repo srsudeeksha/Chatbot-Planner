@@ -1,136 +1,282 @@
-"""
-This is a Python script that serves as a frontend for a conversational AI model built with the `langchain` and Groq.
-The code creates a web application using Streamlit, a Python library for building interactive web apps.
-Modified version to use Groq instead of OpenAI.
-"""
-
-# Import necessary libraries
+# ==============================================
+# IMPORTS
+# ==============================================
 import streamlit as st
 from langchain.chains import ConversationChain
 from langchain.chains.conversation.memory import ConversationEntityMemory
 from langchain.chains.conversation.prompt import ENTITY_MEMORY_CONVERSATION_TEMPLATE
 from langchain_groq import ChatGroq
+from groq import BadRequestError
+import json
+from datetime import datetime
 import os
-os.environ["GROQ_API_KEY"] = "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"
+import time
 
+# ==============================================
+# CONFIGURATION
+# ==============================================
+DEFAULT_API_KEY = "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"
+SESSIONS_FILE = "chat_sessions.json"
+st.set_page_config(page_title='ChatBot', layout='wide', initial_sidebar_state="expanded")
 
-# Set Streamlit page configuration
-st.set_page_config(page_title='🧠MemoryBot🤖', layout='wide')
-# Initialize session states
-if "generated" not in st.session_state:
-    st.session_state["generated"] = []
-if "past" not in st.session_state:
-    st.session_state["past"] = []
-if "input" not in st.session_state:
-    st.session_state["input"] = ""
-if "stored_session" not in st.session_state:
-    st.session_state["stored_session"] = []
+# ==============================================
+# CUSTOM STYLING
+# ==============================================
+def apply_custom_styles():
+    st.markdown("""
+    <style>
+        .main {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        .chat-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px 20px;
+            margin-bottom: 80px;
+        }
+        .user-message {
+            background: #3797F0;
+            color: white;
+            padding: 10px 15px;
+            border-radius: 18px;
+            margin: 5px 0;
+            margin-left: auto;
+            max-width: 70%;
+            width: fit-content;
+        }
+        .bot-message {
+            background: #f0f2f6;
+            color: black;
+            padding: 10px 15px;
+            border-radius: 18px;
+            margin: 5px 0;
+            margin-right: auto;
+            max-width: 70%;
+            width: fit-content;
+        }
+        .input-container {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 15px;
+            background: white;
+            z-index: 100;
+            border-top: 1px solid #e0e0e0;
+        }
+        .stApp {
+            overflow: hidden;
+        }
+        footer {
+            display: none;
+        }
+    </style>
+    """, unsafe_allow_html=True)
 
-# Define function to get user input
-def get_text():
-    """
-    Get the user input text.
+apply_custom_styles()
 
-    Returns:
-        (str): The text entered by the user
-    """
-    input_text = st.text_input("You: ", st.session_state["input"], key="input",
-                            placeholder="Your AI assistant here! Ask me anything ...", 
-                            label_visibility='hidden')
-    return input_text
+# ==============================================
+# SESSION MANAGEMENT
+# ==============================================
+def load_sessions_from_file():
+    if os.path.exists(SESSIONS_FILE):
+        with open(SESSIONS_FILE, "r") as f:
+            return json.load(f)
+    return {}
 
-# Define function to start a new chat
-def new_chat():
-    """
-    Clears session state and starts a new chat.
-    """
-    save = []
-    for i in range(len(st.session_state['generated'])-1, -1, -1):
-        save.append("User:" + st.session_state["past"][i])
-        save.append("Bot:" + st.session_state["generated"][i])        
-    st.session_state["stored_session"].append(save)
-    st.session_state["generated"] = []
-    st.session_state["past"] = []
-    st.session_state["input"] = ""
-    st.session_state.entity_memory.entity_store = {}
-    st.session_state.entity_memory.buffer.clear()
+def save_sessions_to_file():
+    with open(SESSIONS_FILE, "w") as f:
+        json.dump(st.session_state.sessions, f)
 
-# Set up sidebar with various options
-with st.sidebar.expander("🛠️ ", expanded=False):
-    # Option to preview memory store
-    if st.checkbox("Preview memory store"):
-        with st.expander("Memory-Store", expanded=False):
-            st.session_state.entity_memory.store
-    # Option to preview memory buffer
-    if st.checkbox("Preview memory buffer"):
-        with st.expander("Bufffer-Store", expanded=False):
-            st.session_state.entity_memory.buffer
-    MODEL = st.selectbox(label='Model', options=['mixtral-8x7b-32768', 'llama2-70b-4096'])
-    K = st.number_input(' (#)Summary of prompts to consider',min_value=3,max_value=1000)
+# ==============================================
+# SESSION STATE INITIALIZATION
+# ==============================================
+def initialize_session_state():
+    keys_defaults = {
+        "generated": [],
+        "past": [],
+        "processing": False,
+        "entity_memory": None,
+        "llm": None,
+        "conversation": None,
+        "sessions": load_sessions_from_file(),
+        "stream_output": "",
+        "streaming": False
+    }
+    for key, default in keys_defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = default
 
-# Set up the Streamlit app layout
-st.title("🤖 Chat Bot with 🧠")
-st.subheader(" Powered by 🦜 LangChain + Groq + Streamlit")
+    if "current_session" not in st.session_state:
+        session_name = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        st.session_state.current_session = session_name
+        st.session_state.sessions[session_name] = {"generated": [], "past": []}
 
-# Ask the user to enter their Groq API key
-API_O = st.sidebar.text_input("GROQ-API-KEY", type="password")
+initialize_session_state()
 
-# Session state storage would be ideal
-if API_O:
-    # Create a Groq instance
-    llm = ChatGroq(
-            groq_api_key=API_O, 
+# ==============================================
+# SIDEBAR SETTINGS
+# ==============================================
+def sidebar_settings():
+    with st.sidebar:
+        st.markdown("### 🤖 Bot Settings")
+        show_settings = st.toggle("Show Settings", value=False)
+        if show_settings:
+            MODEL = st.selectbox('Model', ['llama3-70b-8192'])
+            K = st.number_input('Memory size', min_value=3, max_value=1000, value=5)
+            API_O = st.text_input("GROQ-API-KEY", type="password", value=DEFAULT_API_KEY) or DEFAULT_API_KEY
+        else:
+            MODEL = 'llama3-70b-8192'
+            K = 5
+            API_O = DEFAULT_API_KEY
+
+        st.markdown("---")
+        if st.button("+ New Chat", type='primary'):
+            new_session()
+
+        if st.button("🗑️ Clear Current Chat"):
+            clear_current_chat()
+
+        if st.button("📥 Export Chat"):
+            export_chat()
+
+        st.markdown("---")
+        st.title("Chat Sessions")
+        for session in st.session_state.sessions:
+            if st.button(session, key=f"session_{session}"):
+                load_session(session)
+
+        return MODEL, K, API_O
+
+def clear_current_chat():
+    st.session_state.past = []
+    st.session_state.generated = []
+    st.session_state.sessions[st.session_state.current_session] = {"generated": [], "past": []}
+    if st.session_state.entity_memory:
+        st.session_state.entity_memory.entity_store = {}
+        st.session_state.entity_memory.buffer.clear()
+    save_sessions_to_file()
+    st.rerun()
+
+def export_chat():
+    chat_data = {
+        "past": st.session_state.past,
+        "generated": st.session_state.generated
+    }
+    st.download_button(
+        label="Download Chat",
+        data=json.dumps(chat_data, indent=2),
+        file_name=f"chat_{st.session_state.current_session}.json",
+        mime="application/json"
+    )
+
+def load_session(session_name):
+    st.session_state.current_session = session_name
+    st.session_state.past = st.session_state.sessions[session_name]["past"]
+    st.session_state.generated = st.session_state.sessions[session_name]["generated"]
+    st.rerun()
+
+def new_session():
+    session_name = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    st.session_state.current_session = session_name
+    st.session_state.sessions[session_name] = {"generated": [], "past": []}
+    st.session_state.past = []
+    st.session_state.generated = []
+    if st.session_state.entity_memory:
+        st.session_state.entity_memory.entity_store = {}
+        st.session_state.entity_memory.buffer.clear()
+    save_sessions_to_file()
+    st.rerun()
+
+MODEL, K, API_O = sidebar_settings()
+
+# ==============================================
+# MAIN APP
+# ==============================================
+def initialize_llm():
+    try:
+        st.session_state.llm = ChatGroq(
+            groq_api_key=API_O,
             model_name=MODEL,
-            temperature=0.1
+            temperature=0.1,
+            streaming=True
         )
-
-    # Create a ConversationEntityMemory object if not already created
-    if 'entity_memory' not in st.session_state:
-            st.session_state.entity_memory = ConversationEntityMemory(llm=llm, k=K)
-        
-    # Create the ConversationChain object with the specified configuration
-    Conversation = ConversationChain(
-            llm=llm, 
+        st.session_state.entity_memory = ConversationEntityMemory(
+            llm=st.session_state.llm,
+            k=K
+        )
+        st.session_state.conversation = ConversationChain(
+            llm=st.session_state.llm,
             prompt=ENTITY_MEMORY_CONVERSATION_TEMPLATE,
-            memory=st.session_state.entity_memory
-        )  
-else:
-    st.sidebar.warning('Groq API key required to try this app. The API key is not stored in any form.')
-    # st.stop()
+            memory=st.session_state.entity_memory,
+            verbose=False
+        )
+    except BadRequestError as e:
+        st.error(f"API Error: {str(e)}")
 
-# Add a button to start a new chat
-st.sidebar.button("New Chat", on_click = new_chat, type='primary')
+def run_chatbot():
+    st.title("💬Chatbot")
+    chat_container = st.container()
+    input_container = st.container()
 
-# Get the user input
-user_input = get_text()
+    with chat_container:
+        st.markdown('<div class="chat-container">', unsafe_allow_html=True)
+        for i in range(len(st.session_state['generated'])):
+            st.markdown(f'<div class="user-message">{st.session_state["past"][i]}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="bot-message">{st.session_state["generated"][i]}</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-# Generate the output using the ConversationChain object and the user input, and add the input/output to the session
-if user_input:
-    output = Conversation.run(input=user_input)  
-    st.session_state.past.append(user_input)  
-    st.session_state.generated.append(output)  
+    with input_container:
+        st.markdown('<div class="input-container">', unsafe_allow_html=True)
+        form = st.form(key='chat_form', clear_on_submit=True)
+        with form:
+            cols = st.columns([6, 1])
+            with cols[0]:
+                user_input = st.text_input(
+                    "Type your message...",
+                    key="user_input",
+                    label_visibility="collapsed",
+                    placeholder="Type a message..."
+                )
+            with cols[1]:
+                submitted = st.form_submit_button("Send", type="primary")
+        st.markdown('</div>', unsafe_allow_html=True)
 
-# Allow to download as well
-download_str = []
-# Display the conversation history using an expander, and allow the user to download it
-with st.expander("Conversation", expanded=True):
-    for i in range(len(st.session_state['generated'])-1, -1, -1):
-        st.info(st.session_state["past"][i],icon="🧐")
-        st.success(st.session_state["generated"][i], icon="🤖")
-        download_str.append(st.session_state["past"][i])
-        download_str.append(st.session_state["generated"][i])
-    
-    # Can throw error - requires fix
-    download_str = '\n'.join(download_str)
-    if download_str:
-        st.download_button('Download',download_str)
+    if submitted and user_input.strip() and not st.session_state.processing:
+        st.session_state.processing = True
+        st.session_state.stream_output = ""
+        st.session_state.streaming = True
+        try:
+            if not st.session_state.llm:
+                initialize_llm()
 
-# Display stored conversation sessions in the sidebar
-for i, sublist in enumerate(st.session_state.stored_session):
-        with st.sidebar.expander(label= f"Conversation-Session:{i}"):
-            st.write(sublist)
+            st.session_state.entity_memory.chat_memory.add_user_message(user_input)
 
-# Allow the user to clear all stored conversation sessions
-if st.session_state.stored_session:   
-    if st.sidebar.checkbox("Clear-all"):
-        del st.session_state.stored_session
+            chat_placeholder = chat_container.empty()
+            full_output = ""
+
+            for chunk in st.session_state.llm.stream(user_input):
+                full_output += chunk.content
+                st.session_state.stream_output = full_output
+                chat_placeholder.markdown(f'<div class="chat-container"><div class="bot-message">{full_output}</div></div>', unsafe_allow_html=True)
+                time.sleep(0.02)
+
+            st.session_state.entity_memory.chat_memory.add_ai_message(full_output)
+            st.session_state.past.append(user_input)
+            st.session_state.generated.append(full_output)
+            st.session_state.sessions[st.session_state.current_session]["past"] = st.session_state.past
+            st.session_state.sessions[st.session_state.current_session]["generated"] = st.session_state.generated
+            save_sessions_to_file()
+
+        except Exception as e:
+            st.error(f"Error: {str(e)}")
+
+        finally:
+            st.session_state.stream_output = ""
+            st.session_state.streaming = False
+            st.session_state.processing = False
+            st.rerun()
+
+run_chatbot()
