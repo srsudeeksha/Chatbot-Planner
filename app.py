@@ -396,7 +396,7 @@ def sidebar_controls():
         if st.button("🗑️ Clear Current Chat"):
             clear_current_chat()
 
-        if st.button("📅 Export Chat"):
+        if st.button("📅 Download Chat"):
             export_chat()
 
         if st.button("🔒 Logout"):
