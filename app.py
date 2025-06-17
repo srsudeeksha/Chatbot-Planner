@@ -75,6 +75,27 @@ def login(username, password):
 def show_login():
     st.markdown("""
     <style>
+        /* Disable scrolling and fix full-page layout */
+    html, body, [data-testid="stAppViewContainer"] {
+        height: 100%;
+        overflow: hidden;
+    }
+
+    [data-testid="stAppViewContainer"] > .main {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+    }
+
+    /* Optional: Avoid scrollbars on small screens */
+    .block-container {
+        padding-top: 0rem;
+        padding-bottom: 0rem;
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
         /* Default (light mode) styles */
         .login-container {
             background: rgba(255, 255, 255, 0.95);
@@ -139,6 +160,19 @@ def show_login():
         .stRadio > div > label {
             color: #000 !important;
             font-weight: 600;
+        }
+        /* Style placeholder text for both inputs in dark mode */
+        input::placeholder {
+            color: white !important;
+            opacity: 0.6;
+        }
+
+        /* Optional: placeholder for light theme (just for safety) */
+        @media (prefers-color-scheme: light) {
+            input::placeholder {
+                color: black !important;
+                opacity: 0.6;
+            }
         }
 
         /* Dark mode overrides */
