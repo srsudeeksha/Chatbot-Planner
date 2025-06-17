@@ -41,13 +41,9 @@ def signup(username, password):
         return False, "Username already exists."
     users[username] = {
         "password": password,
-        "sessions": {
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"): {
-                "generated": [],
-                "past": []
-            }
-        }
+        "sessions": {}
     }
+
     save_users(users)
     return True, "Signup successful. Please login."
 
