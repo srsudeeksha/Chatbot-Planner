@@ -59,12 +59,7 @@ def login(username, password):
             if user_data == password:
                 users[username] = {
                     "password": password,
-                    "sessions": {
-                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"): {
-                            "generated": [],
-                            "past": []
-                        }
-                    }
+                    "sessions": {}
                 }
                 save_users(users)
                 return True, "Login successful."
