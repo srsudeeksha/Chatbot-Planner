@@ -1,5 +1,5 @@
 # ==============================================
-# IMPORTS
+# IMPORT
 # ==============================================
 import streamlit as st
 from langchain.chains import ConversationChain
@@ -478,7 +478,7 @@ def run_chatbot():
             cols = st.columns([6, 1])
             with cols[0]:
                 user_input = st.text_input(
-                    "Type your message...",
+                    "Type your message....",
                     key="user_input",
                     label_visibility="collapsed",
                     placeholder="Type a message..."
