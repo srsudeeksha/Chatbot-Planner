@@ -75,82 +75,159 @@ def login(username, password):
 def show_login():
     st.markdown("""
     <style>
-        [data-testid="stAppViewContainer"] {
-            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-        }
+        /* Default (light mode) styles */
         .login-container {
-            background: white;
-            padding: 2.5rem;
-            border-radius: 15px;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
-            max-width: 500px;
-            margin: 3rem auto;
-        }
-        .login-title {
-            color: #4a6baf;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 2.5rem 3rem;
+            border-radius: 20px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            max-width: 420px;
+            margin: 4rem auto;
             text-align: center;
-            font-size: 2.2rem;
-            margin-bottom: 1.5rem;
-            font-weight: 700;
+            transition: 0.3s ease-in-out;
         }
+
+        .login-container:hover {
+            transform: scale(1.01);
+            box-shadow: 0 12px 48px rgba(0,0,0,0.3);
+        }
+
         .chat-icon {
-            text-align: center;
             font-size: 4rem;
-            color: #4a6baf;
             margin-bottom: 1rem;
+            color: #6B73FF;
+            animation: float 2s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0% { transform: translateY(0); }
+            50% { transform: translateY(-8px); }
+            100% { transform: translateY(0); }
+        }
+
+        .login-title {
+            font-size: 2.5rem;
+            font-weight: 800;
+            color: #333;
+            margin-bottom: 1.5rem;
+        }
+
+        .stTextInput input {
+            color: #000000 !important;
+            background-color: white !important;
+        }
+
+        .stTextInput label {
+            color: #000000 !important;
+        }
+
+        .stButton>button {
+            background-color: #6B73FF !important;
+            color: white !important;
+            padding: 0.6rem 1.4rem;
+            font-size: 1rem;
+            border-radius: 12px;
+            border: none;
+            transition: background 0.3s ease;
+        }
+
+        .stButton>button:hover {
+            background-color: #000DFF !important;
+            transform: scale(1.05);
+        }
+
+        .stRadio > div > label {
+            color: #000 !important;
+            font-weight: 600;
+        }
+
+        /* Dark mode overrides */
+        @media (prefers-color-scheme: dark) {
+            .login-container {
+                background: rgba(25, 25, 25, 0.95);
+                box-shadow: 0 10px 40px rgba(255,255,255,0.1);
+            }
+
+            .chat-icon, .login-title {
+                color: #8aa6ff;
+            }
+
+            .stTextInput input {
+                color: #ffffff !important;
+                background-color: #2d2d2d !important;
+            }
+
+            .stTextInput label {
+                color: #ffffff !important;
+            }
+
+            .stRadio > div > label {
+                color: #ffffff !important;
+            }
+
+            .stButton>button {
+                background-color: #8aa6ff !important;
+                color: black !important;
+            }
+
+            .stButton>button:hover {
+                background-color: #c6d5ff !important;
+            }
         }
     </style>
     """, unsafe_allow_html=True)
 
-    with st.container():
-        st.markdown("""
-        <div class="login-container">
-            <div class="chat-icon">💬</div>
-            <h1 class="login-title">Welcome to ChatBot</h1>
-        </div>
-        """, unsafe_allow_html=True)
+    st.markdown("""
+    <div class="login-container">
+        <div class="chat-icon">🤖</div>
+        <div class="login-title">Sudeeksha's Bot</div>
+    """, unsafe_allow_html=True)
 
-        mode = st.radio(
-            "Select Mode",
-            ["Login", "Signup"],
-            horizontal=True,
-            label_visibility="collapsed"
-        )
-        
-        username = st.text_input(
-            "Username",
-            placeholder="Enter your username",
-            label_visibility="collapsed"
-        )
-        
-        password = st.text_input(
-            "Password",
-            type="password",
-            placeholder="Enter your password",
-            label_visibility="collapsed"
-        )
-        
-        if st.button(mode):
-            if mode == "Signup":
-                success, msg = signup(username, password)
-                if success:
-                    st.success(msg)
-                    time.sleep(1)
-                    st.session_state.logged_in = True
-                    st.session_state.username = username
-                    st.rerun()
-                else:
-                    st.error(msg)
+    mode = st.radio(
+        "Select Mode",
+        ["Login", "Signup"],
+        horizontal=True,
+        label_visibility="collapsed"
+    )
+
+    username = st.text_input(
+        "Username",
+        placeholder="Enter your username",
+        label_visibility="collapsed",
+        key="username_input"
+    )
+
+    password = st.text_input(
+        "Password",
+        type="password",
+        placeholder="Enter your password",
+        label_visibility="collapsed",
+        key="password_input"
+    )
+
+    if st.button(mode):
+        if mode == "Signup":
+            success, msg = signup(username, password)
+            if success:
+                st.success(msg + " Please login now.")
+                time.sleep(1)
+                st.session_state.signup_done = True  # Optional: just to handle UI tweaks
+                st.rerun()
             else:
-                success, msg = login(username, password)
-                if success:
-                    st.success(msg)
-                    time.sleep(1)
-                    st.session_state.logged_in = True
-                    st.session_state.username = username
-                    st.rerun()
-                else:
-                    st.error(msg)
+                st.error(msg)
+        else:
+            success, msg = login(username, password)
+            if success:
+                st.success(msg)
+                time.sleep(1)
+                st.session_state.logged_in = True
+                st.session_state.username = username
+                st.rerun()
+            else:
+                st.error(msg)
+
+    st.markdown("</div>", unsafe_allow_html=True)  # Close login-container
+
 
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
@@ -187,6 +264,25 @@ def apply_custom_styles():
         }
         .stApp { overflow: hidden; }
         footer { display: none; }
+        .session-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            border-radius: 8px;
+            margin: 4px 0;
+            background: #f8f9fa;
+        }
+        .session-item:hover {
+            background: #e9ecef;
+        }
+        .delete-btn {
+            color: #dc3545;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+        }
     </style>
     """, unsafe_allow_html=True)
 
@@ -209,6 +305,18 @@ def save_user_sessions(username, sessions):
         users[username] = {"password": "", "sessions": {}}
     users[username]["sessions"] = sessions
     save_users(users)
+
+def delete_session(session_name):
+    user_sessions = load_user_sessions(st.session_state.username)
+    if session_name in user_sessions:
+        del user_sessions[session_name]
+        save_user_sessions(st.session_state.username, user_sessions)
+        
+        # If we're deleting the current session, create a new one
+        if session_name == st.session_state.current_session:
+            new_session()
+        else:
+            st.rerun()
 
 # ==============================================
 # SESSION STATE INITIALIZATION
@@ -247,13 +355,10 @@ initialize_session_state()
 # ==============================================
 # SIDEBAR CONTROLS (SIMPLIFIED)
 # ==============================================
-# ==============================================
-# SIDEBAR CONTROLS (SIMPLIFIED)
-# ==============================================
 def sidebar_controls():
     with st.sidebar:
         st.markdown(f"### 👋 Welcome, {st.session_state.username}!")
-        st.markdown(f"**Model:** llama3-70b-8192")  # Display model name only
+        st.markdown(f"**Model:** llama3-70b-8192")
         st.markdown("---")
         
         if st.button("+ New Chat", type='primary'):
@@ -272,10 +377,16 @@ def sidebar_controls():
 
         st.markdown("---")
         st.title("Chat Sessions")
+        
         user_sessions = load_user_sessions(st.session_state.username)
-        for session in user_sessions:
-            if st.button(session, key=f"session_{session}"):
-                load_session(session)
+        for session in sorted(user_sessions.keys(), reverse=True):
+            cols = st.columns([4, 1])
+            with cols[0]:
+                if st.button(session, key=f"session_{session}"):
+                    load_session(session)
+            with cols[1]:
+                if st.button("🗑️", key=f"delete_{session}"):
+                    delete_session(session)
 
 def clear_current_chat():
     user_sessions = load_user_sessions(st.session_state.username)
