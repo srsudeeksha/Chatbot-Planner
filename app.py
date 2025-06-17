@@ -430,16 +430,41 @@ def clear_current_chat():
 
 def export_chat():
     user_sessions = load_user_sessions(st.session_state.username)
-    chat_data = {
-        "past": user_sessions[st.session_state.current_session].get("past", []),
-        "generated": user_sessions[st.session_state.current_session].get("generated", [])
+    current_session_data = user_sessions.get(st.session_state.current_session, {})
+    
+    past = current_session_data.get("past", [])
+    generated = current_session_data.get("generated", [])
+
+    # Prepare chat data for JSON
+    json_data = {
+        "past": past,
+        "generated": generated
     }
-    st.download_button(
-        label="Download Chat",
-        data=json.dumps(chat_data, indent=2),
-        file_name=f"chat_{st.session_state.current_session}.json",
-        mime="application/json"
-    )
+    json_str = json.dumps(json_data, indent=2)
+
+    # Prepare chat data for TXT
+    txt_data = ""
+    for user_msg, bot_msg in zip(past, generated):
+        txt_data += f"User: {user_msg}\nBot: {bot_msg}\n\n"
+
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.download_button(
+            label="Download as JSON",
+            data=json_str,
+            file_name=f"chat_{st.session_state.current_session}.json",
+            mime="application/json"
+        )
+
+    with col2:
+        st.download_button(
+            label="Download as TXT",
+            data=txt_data,
+            file_name=f"chat_{st.session_state.current_session}.txt",
+            mime="text/plain"
+        )
+
 
 def load_session(session_name):
     user_sessions = load_user_sessions(st.session_state.username)

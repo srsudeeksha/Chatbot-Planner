@@ -127,5 +127,14 @@
         "past": []
       }
     }
+  },
+  "hpy": {
+    "password": "bdy",
+    "sessions": {
+      "2025-06-17 15:26:48": {
+        "generated": [],
+        "past": []
+      }
+    }
   }
 }
