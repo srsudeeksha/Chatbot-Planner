@@ -213,7 +213,7 @@ def show_login():
 
     st.markdown("""
     <div class="login-container">
-        <div class="chat-icon">🤖</div>
+        <div class="chat-icon">^_^</div>
         <div class="login-title">Sudeeksha's Bot</div>
     """, unsafe_allow_html=True)
 
