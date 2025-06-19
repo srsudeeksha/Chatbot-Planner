@@ -15,7 +15,7 @@ import time
 # ==============================================
 # CONFIGURATION
 # ==============================================
-DEFAULT_API_KEY = "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"
+DEFAULT_API_KEY = "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"
 USERS_FILE = "users.json"
 st.set_page_config(page_title='ChatBot', layout='wide', initial_sidebar_state="expanded")
 
