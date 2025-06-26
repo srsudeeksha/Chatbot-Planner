@@ -145,15 +145,12 @@
   "1": {
     "password": "1",
     "sessions": {
-      "2025-06-19 15:40:46": {
-        "past": [
-          "1"
-        ],
-        "generated": [
-          "The number 1!\n\nHere are some interesting facts about the number 1:\n\n1. **Unity**: The number 1 is often considered the symbol of unity, representing a single entity or a single unit.\n2. **First**: The number 1 is the first number in the sequence of natural numbers, preceding all other numbers.\n3. **Prime**: The number 1 is a prime number, meaning it can only be divided by 1 and itself.\n4. **Multiplicative identity**: In mathematics, the number 1 is the multiplicative identity, meaning that when you multiply any number by 1, the result is the same number.\n5. **Symbolism**: In many cultures, the number 1 is considered a symbol of leadership, strength, and individuality.\n6. **Binary system**: In the binary system, used in computer programming, the number 1 represents \"on\" or \"true\", while 0 represents \"off\" or \"false\".\n7. **Number one**: The phrase \"number one\" is often used to indicate the best, the greatest, or the top-ranked in a particular field or competition.\n\nI hope you found these facts interesting!"
-        ]
+      "2025-06-26 11:51:27": {
+        "generated": [],
+        "past": []
       }
-    }
+    },
+    "plans": {}
   },
   "2": {
     "password": "2",
