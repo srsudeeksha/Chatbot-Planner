@@ -12,51 +12,94 @@ from datetime import datetime, timedelta
 import os
 import time
 import re
+from typing import TypedDict, Annotated, List, Dict, Any
+from langgraph.graph import StateGraph, END, START
+from langgraph.graph.message import add_messages
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_core.prompts import ChatPromptTemplate
+import asyncio
+import uuid
 
 # ==============================================
 # CONFIGURATION
 # ==============================================
-DEFAULT_API_KEY = "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"
+DEFAULT_API_KEY = "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"
 USERS_FILE = "users.json"
-st.set_page_config(page_title='ChatBot & Planner', layout='wide', initial_sidebar_state="expanded")
+st.set_page_config(page_title='Multi-Agent System', layout='wide', initial_sidebar_state="expanded")
 
 # ==============================================
-# PLANNING AGENT PROMPTS
+# MULTI-AGENT STATE DEFINITION
 # ==============================================
-PLANNER_SYSTEM_PROMPT = """You are a highly sophisticated and well-mannered planning assistant. Your role is to help users create detailed, actionable plans for their goals, tasks, and projects.
+class AgentState(TypedDict):
+    messages: Annotated[List[Any], add_messages]
+    user_request: str
+    task_type: str
+    research_data: str
+    plan_content: str
+    review_feedback: str
+    final_output: str
+    current_agent: str
+    workflow_status: str
+    agent_outputs: Dict[str, str]
 
-Your personality traits:
-- Professional yet friendly and approachable
-- Thorough and detail-oriented
-- Encouraging and supportive
-- Proactive in suggesting improvements
-- Clear and organized in communication
+# ==============================================
+# AGENT PROMPTS
+# ==============================================
+ROUTER_SYSTEM_PROMPT = """You are a Task Router Agent. Your job is to analyze user requests and determine the appropriate workflow.
 
-When creating plans, always:
-1. Break down complex goals into manageable steps
-2. Suggest realistic timelines
-3. Consider potential obstacles and provide contingency plans
-4. Prioritize tasks based on importance and urgency
-5. Include specific deadlines and milestones
-6. Offer encouragement and motivation
+Classify the request into one of these categories:
+1. "planning" - User wants to create plans, schedules, organize tasks, set goals
+2. "research" - User wants information, analysis, or investigation on a topic
+3. "chat" - General conversation, questions, or casual interaction
+4. "complex" - Requests that need both research and planning
 
-Format your responses clearly with:
-- Clear headings and subheadings
-- Numbered steps or bullet points
-- Timeline suggestions
-- Priority levels (High, Medium, Low)
-- Success metrics where applicable
+Respond with ONLY the category name (planning/research/chat/complex).
 
-Always ask clarifying questions if the user's request is vague, and provide actionable, specific advice."""
+Examples:
+- "Help me plan a vacation to Japan" → planning
+- "What are the benefits of meditation?" → research
+- "How are you doing today?" → chat
+- "Research the best programming languages and create a learning plan" → complex
+"""
 
-PLAN_TEMPLATE = """Based on the conversation history and the user's current request, create a comprehensive plan.
+RESEARCH_SYSTEM_PROMPT = """You are a Research Agent specialized in gathering, analyzing, and synthesizing information.
 
-Current conversation:
-{history}
+Your responsibilities:
+1. Thoroughly research the given topic
+2. Provide comprehensive, accurate information
+3. Include relevant facts, statistics, and insights
+4. Structure information clearly and logically
+5. Cite sources when possible
+6. Highlight key findings and important points
 
-User's request: {input}
+Always provide detailed, well-researched responses that can be used by other agents for further processing.
+"""
 
-Please provide a detailed, well-structured plan that addresses the user's needs. Include specific steps, timelines, and any relevant advice."""
+PLANNING_SYSTEM_PROMPT = """You are a Planning Agent specialized in creating detailed, actionable plans and strategies.
+
+Your responsibilities:
+1. Create comprehensive, step-by-step plans
+2. Set realistic timelines and milestones
+3. Consider resource requirements and constraints
+4. Provide contingency plans for potential obstacles
+5. Include success metrics and evaluation criteria
+6. Structure plans with clear priorities and dependencies
+
+Always create practical, implementable plans that users can follow to achieve their goals.
+"""
+
+REVIEW_SYSTEM_PROMPT = """You are a Review Agent responsible for quality assurance and final output optimization.
+
+Your responsibilities:
+1. Review all agent outputs for accuracy and completeness
+2. Ensure consistency across different agent contributions
+3. Identify gaps or areas for improvement
+4. Synthesize information into a coherent final response
+5. Add executive summary or key takeaways
+6. Ensure the output directly addresses the user's original request
+
+Provide constructive feedback and create polished final outputs that exceed user expectations.
+"""
 
 # ==============================================
 # USER AUTHENTICATION (Same as before)
@@ -81,7 +124,8 @@ def signup(username, password):
     users[username] = {
         "password": password,
         "sessions": {},
-        "plans": {}
+        "plans": {},
+        "agent_workflows": {}
     }
     save_users(users)
     return True, "Signup successful. Please login."
@@ -95,7 +139,8 @@ def login(username, password):
                 users[username] = {
                     "password": password,
                     "sessions": {},
-                    "plans": {}
+                    "plans": {},
+                    "agent_workflows": {}
                 }
                 save_users(users)
                 return True, "Login successful."
@@ -156,7 +201,7 @@ def show_login():
         }
 
         .login-title {
-            font-size: 2.5rem;
+            font-size: 2.2rem;
             font-weight: 800;
             color: #333;
             margin-bottom: 1.5rem;
@@ -190,58 +235,13 @@ def show_login():
             color: #000 !important;
             font-weight: 600;
         }
-        
-        input::placeholder {
-            color: white !important;
-            opacity: 0.6;
-        }
-
-        @media (prefers-color-scheme: light) {
-            input::placeholder {
-                color: black !important;
-                opacity: 0.6;
-            }
-        }
-
-        @media (prefers-color-scheme: dark) {
-            .login-container {
-                background: rgba(25, 25, 25, 0.95);
-                box-shadow: 0 10px 40px rgba(255,255,255,0.1);
-            }
-
-            .chat-icon, .login-title {
-                color: #8aa6ff;
-            }
-
-            .stTextInput input {
-                color: #ffffff !important;
-                background-color: #2d2d2d !important;
-            }
-
-            .stTextInput label {
-                color: #ffffff !important;
-            }
-
-            .stRadio > div > label {
-                color: #ffffff !important;
-            }
-
-            .stButton>button {
-                background-color: #8aa6ff !important;
-                color: black !important;
-            }
-
-            .stButton>button:hover {
-                background-color: #c6d5ff !important;
-            }
-        }
     </style>
     """, unsafe_allow_html=True)
 
     st.markdown("""
     <div class="login-container">
         <div class="chat-icon">🤖</div>
-        <div class="login-title">Sudeeksha's Bot & Planner</div>
+        <div class="login-title">Multi-Agent System</div>
     """, unsafe_allow_html=True)
 
     mode = st.radio(
@@ -297,90 +297,283 @@ if not st.session_state.logged_in:
     st.stop()
 
 # ==============================================
+# MULTI-AGENT SYSTEM CLASSES
+# ==============================================
+class MultiAgentSystem:
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        self.agents = {}
+        self.workflow = None
+        self.initialize_agents()
+        self.create_workflow()
+    
+    def initialize_agents(self):
+        """Initialize all agents with their specific LLMs"""
+        try:
+            self.agents = {
+                "router": ChatGroq(groq_api_key=self.api_key, model_name='llama3-70b-8192', temperature=0.1),
+                "researcher": ChatGroq(groq_api_key=self.api_key, model_name='llama3-70b-8192', temperature=0.3),
+                "planner": ChatGroq(groq_api_key=self.api_key, model_name='llama3-70b-8192', temperature=0.2),
+                "reviewer": ChatGroq(groq_api_key=self.api_key, model_name='llama3-70b-8192', temperature=0.1)
+            }
+        except Exception as e:
+            st.error(f"Failed to initialize agents: {str(e)}")
+    
+    def router_agent(self, state: AgentState) -> AgentState:
+        """Route the task to appropriate workflow"""
+        try:
+            messages = [
+                SystemMessage(content=ROUTER_SYSTEM_PROMPT),
+                HumanMessage(content=state["user_request"])
+            ]
+            
+            response = self.agents["router"].invoke(messages)
+            task_type = response.content.strip().lower()
+            
+            state["task_type"] = task_type
+            state["current_agent"] = "router"
+            state["workflow_status"] = f"Task classified as: {task_type}"
+            state["agent_outputs"]["router"] = f"Task type: {task_type}"
+            
+            return state
+        except Exception as e:
+            state["workflow_status"] = f"Router error: {str(e)}"
+            return state
+    
+    def research_agent(self, state: AgentState) -> AgentState:
+        """Conduct research on the given topic"""
+        try:
+            if state["task_type"] in ["research", "complex"]:
+                messages = [
+                    SystemMessage(content=RESEARCH_SYSTEM_PROMPT),
+                    HumanMessage(content=f"Research request: {state['user_request']}")
+                ]
+                
+                response = self.agents["researcher"].invoke(messages)
+                state["research_data"] = response.content
+                state["current_agent"] = "researcher"
+                state["workflow_status"] = "Research completed"
+                state["agent_outputs"]["researcher"] = response.content
+            else:
+                state["research_data"] = "No research required for this task type"
+                state["agent_outputs"]["researcher"] = "Skipped - not required"
+            
+            return state
+        except Exception as e:
+            state["workflow_status"] = f"Research error: {str(e)}"
+            return state
+    
+    def planning_agent(self, state: AgentState) -> AgentState:
+        """Create detailed plans based on research or direct request"""
+        try:
+            if state["task_type"] in ["planning", "complex"]:
+                context = f"User request: {state['user_request']}\n"
+                if state["research_data"] and state["research_data"] != "No research required for this task type":
+                    context += f"Research findings: {state['research_data']}\n"
+                
+                messages = [
+                    SystemMessage(content=PLANNING_SYSTEM_PROMPT),
+                    HumanMessage(content=f"Create a plan based on: {context}")
+                ]
+                
+                response = self.agents["planner"].invoke(messages)
+                state["plan_content"] = response.content
+                state["current_agent"] = "planner"
+                state["workflow_status"] = "Planning completed"
+                state["agent_outputs"]["planner"] = response.content
+            else:
+                state["plan_content"] = "No planning required for this task type"
+                state["agent_outputs"]["planner"] = "Skipped - not required"
+            
+            return state
+        except Exception as e:
+            state["workflow_status"] = f"Planning error: {str(e)}"
+            return state
+    
+    def review_agent(self, state: AgentState) -> AgentState:
+        """Review and synthesize all agent outputs"""
+        try:
+            review_context = f"""
+            Original request: {state['user_request']}
+            Task type: {state['task_type']}
+            Research data: {state.get('research_data', 'None')}
+            Plan content: {state.get('plan_content', 'None')}
+            
+            Please review and create a comprehensive final response.
+            """
+            
+            messages = [
+                SystemMessage(content=REVIEW_SYSTEM_PROMPT),
+                HumanMessage(content=review_context)
+            ]
+            
+            response = self.agents["reviewer"].invoke(messages)
+            state["final_output"] = response.content
+            state["current_agent"] = "reviewer"
+            state["workflow_status"] = "Review completed - Final output ready"
+            state["agent_outputs"]["reviewer"] = response.content
+            
+            return state
+        except Exception as e:
+            state["workflow_status"] = f"Review error: {str(e)}"
+            return state
+    
+    def should_continue_to_research(self, state: AgentState) -> str:
+        """Decide if research is needed"""
+        if state["task_type"] in ["research", "complex"]:
+            return "research"
+        return "planning"
+    
+    def should_continue_to_planning(self, state: AgentState) -> str:
+        """Decide if planning is needed after research"""
+        if state["task_type"] in ["planning", "complex"]:
+            return "planning"
+        return "review"
+    
+    def should_continue_to_review(self, state: AgentState) -> str:
+        """Always continue to review"""
+        return "review"
+    
+    def create_workflow(self):
+        """Create the LangGraph workflow"""
+        workflow = StateGraph(AgentState)
+        
+        # Add nodes
+        workflow.add_node("router", self.router_agent)
+        workflow.add_node("research", self.research_agent)
+        workflow.add_node("planning", self.planning_agent)
+        workflow.add_node("review", self.review_agent)
+        
+        # Add edges
+        workflow.add_edge(START, "router")
+        workflow.add_conditional_edges(
+            "router",
+            self.should_continue_to_research,
+            {
+                "research": "research",
+                "planning": "planning"
+            }
+        )
+        workflow.add_conditional_edges(
+            "research",
+            self.should_continue_to_planning,
+            {
+                "planning": "planning",
+                "review": "review"
+            }
+        )
+        workflow.add_conditional_edges(
+            "planning",
+            self.should_continue_to_review,
+            {
+                "review": "review"
+            }
+        )
+        workflow.add_edge("review", END)
+        
+        self.workflow = workflow.compile()
+    
+    def process_request(self, user_request: str) -> Dict[str, Any]:
+        """Process a user request through the multi-agent workflow"""
+        initial_state = AgentState(
+            messages=[],
+            user_request=user_request,
+            task_type="",
+            research_data="",
+            plan_content="",
+            review_feedback="",
+            final_output="",
+            current_agent="",
+            workflow_status="Starting workflow...",
+            agent_outputs={}
+        )
+        
+        try:
+            result = self.workflow.invoke(initial_state)
+            return result
+        except Exception as e:
+            return {
+                "final_output": f"Workflow error: {str(e)}",
+                "workflow_status": "Error occurred",
+                "agent_outputs": {"error": str(e)}
+            }
+
+# ==============================================
 # CUSTOM STYLING
 # ==============================================
 def apply_custom_styles():
     st.markdown("""
     <style>
         .main { display: flex; flex-direction: column; height: 100vh; }
-        .chat-container {
-            flex: 1; overflow-y: auto; padding: 10px 20px;
-            margin-bottom: 80px;
-        }
-        .user-message {
-            background: #3797F0; color: white; padding: 10px 15px;
-            border-radius: 18px; margin: 5px 0; margin-left: auto;
-            max-width: 70%; width: fit-content;
-        }
-        .bot-message {
-            background: #f0f2f6; color: black; padding: 10px 15px;
-            border-radius: 18px; margin: 5px 0; margin-right: auto;
-            max-width: 70%; width: fit-content;
-        }
-        .planner-message {
-            background: #e8f5e8; color: #2d5a2d; padding: 15px 20px;
-            border-radius: 18px; margin: 10px 0; margin-right: auto;
-            max-width: 85%; width: fit-content;
-            border-left: 4px solid #4CAF50;
-        }
-        .input-container {
-            position: fixed; bottom: 0; left: 0; right: 0;
-            padding: 15px; background: white; z-index: 100;
-            border-top: 1px solid #e0e0e0;
-        }
-        .stApp { overflow: hidden; }
-        footer { display: none; }
-        .session-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 8px 12px;
-            border-radius: 8px;
-            margin: 4px 0;
+        .agent-workflow-container {
             background: #f8f9fa;
-        }
-        .session-item:hover {
-            background: #e9ecef;
-        }
-        .delete-btn {
-            color: #dc3545;
-            background: none;
-            border: none;
-            cursor: pointer;
-            font-size: 14px;
-        }
-        .plan-card {
-            background: #f8f9fa;
-            border: 1px solid #dee2e6;
             border-radius: 10px;
             padding: 15px;
             margin: 10px 0;
-            transition: all 0.3s ease;
+            border-left: 4px solid #007bff;
         }
-        .plan-card:hover {
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-            transform: translateY(-2px);
+        .agent-step {
+            background: white;
+            border-radius: 8px;
+            padding: 12px;
+            margin: 8px 0;
+            border-left: 3px solid #28a745;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
-        .plan-title {
-            font-size: 1.2em;
-            font-weight: bold;
-            color: #2c3e50;
-            margin-bottom: 10px;
+        .agent-step.active {
+            border-left-color: #ffc107;
+            background: #fff3cd;
         }
-        .plan-date {
-            color: #6c757d;
-            font-size: 0.9em;
-            margin-bottom: 10px;
+        .agent-step.completed {
+            border-left-color: #28a745;
+            background: #d4edda;
         }
-        .plan-preview {
-            color: #495057;
-            line-height: 1.4;
+        .agent-step.error {
+            border-left-color: #dc3545;
+            background: #f8d7da;
         }
-        .mode-selector {
-            background: #f8f9fa;
-            padding: 10px;
+        .workflow-progress {
+            background: #e9ecef;
             border-radius: 10px;
-            margin-bottom: 20px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+        .user-message {
+            background: #3797F0;
+            color: white;
+            padding: 10px 15px;
+            border-radius: 18px;
+            margin: 5px 0;
+            margin-left: auto;
+            max-width: 70%;
+            width: fit-content;
+        }
+        .agent-message {
+            background: #f0f2f6;
+            color: black;
+            padding: 15px 20px;
+            border-radius: 18px;
+            margin: 10px 0;
+            margin-right: auto;
+            max-width: 85%;
+            width: fit-content;
+            border-left: 4px solid #007bff;
+        }
+        .final-output {
+            background: #d4edda;
+            color: #155724;
+            padding: 20px;
+            border-radius: 15px;
+            margin: 15px 0;
+            border-left: 4px solid #28a745;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .agent-tabs {
+            background: white;
+            border-radius: 10px;
+            padding: 10px;
+            margin: 10px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
     </style>
     """, unsafe_allow_html=True)
@@ -388,123 +581,101 @@ def apply_custom_styles():
 apply_custom_styles()
 
 # ==============================================
-# SESSION MANAGEMENT
-# ==============================================
-def load_user_sessions(username):
-    users = load_users()
-    if username in users:
-        user_data = users[username]
-        if isinstance(user_data, dict):
-            return user_data.get("sessions", {})
-    return {}
-
-def save_user_sessions(username, sessions):
-    users = load_users()
-    if username not in users:
-        users[username] = {"password": "", "sessions": {}, "plans": {}}
-    users[username]["sessions"] = sessions
-    save_users(users)
-
-def load_user_plans(username):
-    users = load_users()
-    if username in users:
-        user_data = users[username]
-        if isinstance(user_data, dict):
-            return user_data.get("plans", {})
-    return {}
-
-def save_user_plans(username, plans):
-    users = load_users()
-    if username not in users:
-        users[username] = {"password": "", "sessions": {}, "plans": {}}
-    users[username]["plans"] = plans
-    save_users(users)
-
-def delete_session(session_name):
-    user_sessions = load_user_sessions(st.session_state.username)
-    if session_name in user_sessions:
-        del user_sessions[session_name]
-        save_user_sessions(st.session_state.username, user_sessions)
-        
-        if session_name == st.session_state.current_session:
-            new_session()
-        else:
-            st.rerun()
-
-def delete_plan(plan_name):
-    user_plans = load_user_plans(st.session_state.username)
-    if plan_name in user_plans:
-        del user_plans[plan_name]
-        save_user_plans(st.session_state.username, user_plans)
-        st.rerun()
-
-# ==============================================
 # SESSION STATE INITIALIZATION
 # ==============================================
 def initialize_session_state():
     keys_defaults = {
-        "generated": [], 
-        "past": [], 
-        "processing": False,
-        "entity_memory": None, 
-        "llm": None, 
-        "conversation": None,
-        "planner_llm": None,
-        "stream_output": "",
-        "streaming": False,
-        "app_mode": "Chat",  # Chat or Planner
-        "current_plan": None,
-        "plan_history": []
+        "multi_agent_system": None,
+        "workflow_history": [],
+        "current_workflow": None,
+        "workflow_in_progress": False,
+        "app_mode": "Multi-Agent Chat"
     }
     
     for key, default in keys_defaults.items():
         if key not in st.session_state:
             st.session_state[key] = default
 
-    if "current_session" not in st.session_state:
-        session_name = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        st.session_state.current_session = session_name
-        user_sessions = load_user_sessions(st.session_state.username)
-        if session_name not in user_sessions:
-            user_sessions[session_name] = {"generated": [], "past": []}
-            save_user_sessions(st.session_state.username, user_sessions)
-
-    user_sessions = load_user_sessions(st.session_state.username)
-    if st.session_state.current_session in user_sessions:
-        st.session_state.past = user_sessions[st.session_state.current_session].get("past", [])
-        st.session_state.generated = user_sessions[st.session_state.current_session].get("generated", [])
-
 initialize_session_state()
+
+# ==============================================
+# WORKFLOW MANAGEMENT
+# ==============================================
+def save_workflow_to_user(workflow_result):
+    """Save workflow result to user's data"""
+    users = load_users()
+    username = st.session_state.username
+    
+    if username in users:
+        if "agent_workflows" not in users[username]:
+            users[username]["agent_workflows"] = {}
+        
+        workflow_id = str(uuid.uuid4())[:8]
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        users[username]["agent_workflows"][f"{timestamp}_{workflow_id}"] = {
+            "request": workflow_result.get("user_request", ""),
+            "result": workflow_result,
+            "timestamp": timestamp
+        }
+        
+        save_users(users)
+
+def load_user_workflows():
+    """Load user's workflow history"""
+    users = load_users()
+    username = st.session_state.username
+    
+    if username in users:
+        return users[username].get("agent_workflows", {})
+    return {}
 
 # ==============================================
 # SIDEBAR CONTROLS
 # ==============================================
 def sidebar_controls():
     with st.sidebar:
-        st.markdown(f"### 👋 Welcome, {st.session_state.username}!")
-        
-        # Mode selector
-        
-        mode = st.radio(
-            "Choose Mode:",
-            ["💬 Chat", "📋 Planner"],
-            index=0 if st.session_state.app_mode == "Chat" else 1,
-            horizontal=True
-        )
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        if mode == "💬 Chat":
-            st.session_state.app_mode = "Chat"
-        else:
-            st.session_state.app_mode = "Planner"
-        
-        st.markdown(f"**Model:** llama3-70b-8192")
+        st.markdown(f"### 🤖 Multi-Agent System")
+        st.markdown(f"**User:** {st.session_state.username}")
+        st.markdown("**Model:** llama3-70b-8192")
         st.markdown("---")
         
-        if st.session_state.app_mode == "Chat":
-            chat_sidebar_controls()
+        # Mode selection
+        mode = st.radio(
+            "System Mode:",
+            ["🤖 Multi-Agent Chat", "📊 Workflow History", "⚙️ Agent Status"],
+            index=0
+        )
+        
+        if mode == "🤖 Multi-Agent Chat":
+            st.session_state.app_mode = "Multi-Agent Chat"
+        elif mode == "📊 Workflow History":
+            st.session_state.app_mode = "Workflow History"
         else:
-            planner_sidebar_controls()
+            st.session_state.app_mode = "Agent Status"
+        
+        st.markdown("---")
+        
+        # Agent system controls
+        if st.button("🔄 Reset Agent System"):
+            st.session_state.multi_agent_system = None
+            st.session_state.current_workflow = None
+            st.session_state.workflow_in_progress = False
+            st.rerun()
+        
+        if st.button("📋 Clear Workflow History"):
+            st.session_state.workflow_history = []
+            st.rerun()
+        
+        st.markdown("---")
+        
+        # Workflow history preview
+        if st.session_state.workflow_history:
+            st.markdown("### Recent Workflows")
+            for i, workflow in enumerate(st.session_state.workflow_history[-3:]):
+                with st.expander(f"Workflow {len(st.session_state.workflow_history) - i}"):
+                    st.write(f"**Request:** {workflow.get('user_request', 'N/A')[:50]}...")
+                    st.write(f"**Status:** {workflow.get('workflow_status', 'N/A')}")
         
         st.markdown("---")
         if st.button("🔒 Logout"):
@@ -512,510 +683,754 @@ def sidebar_controls():
             st.session_state.username = ""
             st.rerun()
 
-def chat_sidebar_controls():
-    if st.button("+ New Chat", type='primary'):
-        new_session()
-
-    if st.button("🗑️ Clear Current Chat"):
-        clear_current_chat()
-
-    if st.button("📅 Download Chat"):
-        export_chat()
-
-    st.markdown("### Chat Sessions")
-    user_sessions = load_user_sessions(st.session_state.username)
-    for session in sorted(user_sessions.keys(), reverse=True):
-        cols = st.columns([4, 1])
-        with cols[0]:
-            if st.button(session[:16] + "...", key=f"session_{session}"):
-                load_session(session)
-        with cols[1]:
-            if st.button("🗑️", key=f"delete_{session}"):
-                delete_session(session)
-
-def planner_sidebar_controls():
-    if st.button("+ New Plan", type='primary'):
-        st.session_state.current_plan = None
-        st.session_state.plan_history = []
-
-    if st.button("📋 View All Plans"):
-        show_all_plans()
-
-    st.markdown("### Plan Sessions")
-    user_plans = load_user_plans(st.session_state.username)
-    for plan_name in sorted(user_plans.keys(), reverse=True)[:5]:
-        cols = st.columns([4, 1])
-        with cols[0]:
-            if st.button(plan_name[:16] + "...", key=f"plan_{plan_name}"):
-                load_plan(plan_name)
-        with cols[1]:
-            if st.button("🗑️", key=f"delete_plan_{plan_name}"):
-                delete_plan(plan_name)
-
-# ==============================================
-# CHAT FUNCTIONS
-# ==============================================
-def clear_current_chat():
-    user_sessions = load_user_sessions(st.session_state.username)
-    st.session_state.past = []
-    st.session_state.generated = []
-    user_sessions[st.session_state.current_session] = {"generated": [], "past": []}
-    save_user_sessions(st.session_state.username, user_sessions)
-    if st.session_state.entity_memory:
-        st.session_state.entity_memory.entity_store = {}
-        st.session_state.entity_memory.buffer.clear()
-    st.rerun()
-
-def export_chat():
-    user_sessions = load_user_sessions(st.session_state.username)
-    current_session_data = user_sessions.get(st.session_state.current_session, {})
-    
-    past = current_session_data.get("past", [])
-    generated = current_session_data.get("generated", [])
-
-    json_data = {
-        "past": past,
-        "generated": generated
-    }
-    json_str = json.dumps(json_data, indent=2)
-
-    txt_data = ""
-    for user_msg, bot_msg in zip(past, generated):
-        txt_data += f"User: {user_msg}\nBot: {bot_msg}\n\n"
-
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.download_button(
-            label="Download as JSON",
-            data=json_str,
-            file_name=f"chat_{st.session_state.current_session}.json",
-            mime="application/json"
-        )
-
-    with col2:
-        st.download_button(
-            label="Download as TXT",
-            data=txt_data,
-            file_name=f"chat_{st.session_state.current_session}.txt",
-            mime="text/plain"
-        )
-
-def load_session(session_name):
-    user_sessions = load_user_sessions(st.session_state.username)
-    if session_name in user_sessions:
-        st.session_state.current_session = session_name
-        st.session_state.past = user_sessions[session_name].get("past", [])
-        st.session_state.generated = user_sessions[session_name].get("generated", [])
-        st.rerun()
-
-def new_session():
-    session_name = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    st.session_state.current_session = session_name
-    user_sessions = load_user_sessions(st.session_state.username)
-    user_sessions[session_name] = {"generated": [], "past": []}
-    save_user_sessions(st.session_state.username, user_sessions)
-    st.session_state.past = []
-    st.session_state.generated = []
-    if st.session_state.entity_memory:
-        st.session_state.entity_memory.entity_store = {}
-        st.session_state.entity_memory.buffer.clear()
-    st.rerun()
-
-# ==============================================
-# PLANNER FUNCTIONS
-# ==============================================
-def initialize_planner_llm():
-    try:
-        st.session_state.planner_llm = ChatGroq(
-            groq_api_key=DEFAULT_API_KEY,
-            model_name='llama3-70b-8192',
-            temperature=0.3,
-            streaming=True
-        )
-    except BadRequestError as e:
-        st.error(f"API Error: {str(e)}")
-
-def create_plan(user_request):
-    if not st.session_state.planner_llm:
-        initialize_planner_llm()
-    
-    # Create conversation history context
-    history_context = ""
-    if st.session_state.plan_history:
-        history_context = "\n".join([
-            f"User: {entry['request']}\nPlanner: {entry['response'][:200]}..."
-            for entry in st.session_state.plan_history[-3:]  # Last 3 interactions
-        ])
-    
-    # Format the prompt
-    prompt = f"{PLANNER_SYSTEM_PROMPT}\n\n{PLAN_TEMPLATE.format(history=history_context, input=user_request)}"
-    
-    try:
-        full_response = ""
-        for chunk in st.session_state.planner_llm.stream(prompt):
-            full_response += chunk.content
-            yield chunk.content
-        
-        # Save the plan interaction
-        plan_entry = {
-            "request": user_request,
-            "response": full_response,
-            "timestamp": datetime.now().isoformat()
-        }
-        st.session_state.plan_history.append(plan_entry)
-        
-        # Save plan to user's plans if it's substantial
-        if len(full_response) > 200:
-            save_plan_to_storage(user_request, full_response)
-            
-    except Exception as e:
-        yield f"I apologize, but I encountered an error while creating your plan: {str(e)}"
-
-def save_plan_to_storage(title, content):
-    plan_name = f"{title[:50]}..." if len(title) > 50 else title
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    user_plans = load_user_plans(st.session_state.username)
-    user_plans[f"{timestamp} - {plan_name}"] = {
-        "title": title,
-        "content": content,
-        "created_at": timestamp
-    }
-    save_user_plans(st.session_state.username, user_plans)
-
-def load_plan(plan_name):
-    user_plans = load_user_plans(st.session_state.username)
-    if plan_name in user_plans:
-        plan_data = user_plans[plan_name]
-        st.session_state.current_plan = plan_data
-        st.rerun()
-
-def show_all_plans():
-    st.session_state.show_all_plans = True
-
-# ==============================================
-# LLM INITIALIZATION
-# ==============================================
-def initialize_llm():
-    try:
-        st.session_state.llm = ChatGroq(
-            groq_api_key=DEFAULT_API_KEY,
-            model_name='llama3-70b-8192',
-            temperature=0.1,
-            streaming=True
-        )
-        st.session_state.entity_memory = ConversationEntityMemory(
-            llm=st.session_state.llm,
-            k=5
-        )
-        st.session_state.conversation = ConversationChain(
-            llm=st.session_state.llm,
-            prompt=ENTITY_MEMORY_CONVERSATION_TEMPLATE,
-            memory=st.session_state.entity_memory,
-            verbose=False
-        )
-    except BadRequestError as e:
-        st.error(f"API Error: {str(e)}")
-
 # ==============================================
 # MAIN INTERFACES
 # ==============================================
-def run_chatbot():
-    st.title("💬 ChatBot")
-    chat_container = st.container()
-    input_container = st.container()
-
-    with chat_container:
-        st.markdown('<div class="chat-container">', unsafe_allow_html=True)
-        for i in range(len(st.session_state['generated'])):
-            st.markdown(f'<div class="user-message">{st.session_state["past"][i]}</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="bot-message">{st.session_state["generated"][i]}</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    with input_container:
-        st.markdown('<div class="input-container">', unsafe_allow_html=True)
-        form = st.form(key='chat_form', clear_on_submit=True)
-        with form:
-            cols = st.columns([6, 1])
-            with cols[0]:
-                user_input = st.text_input(
-                    "Type your message....",
-                    key="user_input",
-                    label_visibility="collapsed",
-                    placeholder="Type a message..."
-                )
-            with cols[1]:
-                submitted = st.form_submit_button("Send", type="primary")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    if submitted and user_input.strip() and not st.session_state.processing:
-        st.session_state.processing = True
-        st.session_state.stream_output = ""
-        st.session_state.streaming = True
-        try:
-            if not st.session_state.llm:
-                initialize_llm()
-
-            st.session_state.entity_memory.chat_memory.add_user_message(user_input)
-
-            chat_placeholder = chat_container.empty()
-            full_output = ""
-
-            for chunk in st.session_state.llm.stream(user_input):
-                full_output += chunk.content
-                st.session_state.stream_output = full_output
-                chat_placeholder.markdown(f'<div class="chat-container"><div class="bot-message">{full_output}</div></div>', unsafe_allow_html=True)
-                time.sleep(0.02)
-
-            st.session_state.entity_memory.chat_memory.add_ai_message(full_output)
-            st.session_state.past.append(user_input)
-            st.session_state.generated.append(full_output)
+def run_multi_agent_chat():
+    st.title("🤖 Multi-Agent AI System")
+    st.markdown("**Four specialized agents working together: Router → Researcher → Planner → Reviewer**")
+    
+    # Initialize multi-agent system
+    if not st.session_state.multi_agent_system:
+        with st.spinner("Initializing multi-agent system..."):
+            st.session_state.multi_agent_system = MultiAgentSystem(DEFAULT_API_KEY)
+        st.success("Multi-agent system initialized!")
+    
+    # Display workflow history
+    if st.session_state.workflow_history:
+        st.markdown("### Conversation History")
+        for i, workflow in enumerate(st.session_state.workflow_history):
+            # User message
+            st.markdown(f'<div class="user-message">{workflow.get("user_request", "")}</div>', unsafe_allow_html=True)
             
-            user_sessions = load_user_sessions(st.session_state.username)
-            user_sessions[st.session_state.current_session] = {
-                "past": st.session_state.past,
-                "generated": st.session_state.generated
-            }
-            save_user_sessions(st.session_state.username, user_sessions)
-
-        except Exception as e:
-            st.error(f"Error: {str(e)}")
-
-        finally:
-            st.session_state.stream_output = ""
-            st.session_state.streaming = False
-            st.session_state.processing = False
-            st.rerun()
-
-def run_planner():
-    # Add custom CSS for chat-like interface
-    st.markdown("""
-    <style>
-    .user-message {
-        background-color: #007bff;
-        color: white;
-        padding: 10px 15px;
-        border-radius: 18px;
-        margin: 5px 0;
-        max-width: 70%;
-        margin-left: auto;
-        margin-right: 0;
-        word-wrap: break-word;
-        text-align: right;
-    }
-    
-    .planner-message {
-        background-color: #f1f1f1;
-        color: #333;
-        padding: 10px 15px;
-        border-radius: 18px;
-        margin: 5px 0;
-        max-width: 70%;
-        margin-left: 0;
-        margin-right: auto;
-        word-wrap: break-word;
-        white-space: pre-wrap;
-    }
-    
-    .planner-message.loading {
-        background-color: #e9ecef;
-        font-style: italic;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    st.title("📋 Planning Assistant")
-    
-    # Show current plan if one is loaded
-    if st.session_state.current_plan:
-        st.markdown("### Current Plan")
-        with st.expander("📋 Plan Details", expanded=True):
-            st.markdown(f"**Title:** {st.session_state.current_plan['title']}")
-            st.markdown(f"**Created:** {st.session_state.current_plan['created_at']}")
-            st.markdown("**Plan Content:**")
-            st.markdown(st.session_state.current_plan['content'])
-        
-        if st.button("🔄 Create New Plan"):
-            st.session_state.current_plan = None
-            st.rerun()
-        
-        st.markdown("---")
-    
-    # Show plan history
-    if st.session_state.plan_history:
-        st.markdown("### Current Planning Session")
-        
-        for i, entry in enumerate(st.session_state.plan_history):
-            # User message (right side)
-            st.markdown(f'<div class="user-message">{entry.get("request", "No request")}</div>', unsafe_allow_html=True)
+            # Agent workflow result
+            final_output = workflow.get("final_output", "No output generated")
+            st.markdown(f'<div class="final-output"><strong>🤖 Multi-Agent Response:</strong><br>{final_output}</div>', unsafe_allow_html=True)
             
-            # Planner response (left side)
-            response = entry.get("response", "")
-            if response:
-                if response == "Generating plan...":
-                    st.markdown(f'<div class="planner-message loading">🔄 {response}</div>', unsafe_allow_html=True)
-                else:
-                    # Escape HTML and show the response
-                    import html
-                    escaped_response = html.escape(str(response))
-                    st.markdown(f'<div class="planner-message">{escaped_response}</div>', unsafe_allow_html=True)
-            else:
-                st.markdown('<div class="planner-message">❌ No response generated</div>', unsafe_allow_html=True)
-            
-            st.markdown("<br>", unsafe_allow_html=True)
-    
-    # Planning input
-    st.markdown('<div class="input-container">', unsafe_allow_html=True)
-    form = st.form(key='planner_form', clear_on_submit=True)
-    with form:
-        st.markdown("### What would you like to plan?")
-        planning_examples = [
-            "Plan a 30-day fitness routine for beginners",
-            "Create a study schedule for my upcoming exams",
-            "Help me plan a weekend trip to a nearby city",
-            "Design a meal prep plan for the week",
-            "Plan a career transition strategy",
-            "Create a budget plan for saving money"
-        ]
-        
-        example_choice = st.selectbox(
-            "Choose an example or write your own:",
-            ["Custom request"] + planning_examples,
-            key="example_selector"
-        )
-        
-        if example_choice == "Custom request":
-            user_request = st.text_area(
-                "Describe what you'd like to plan:",
-                placeholder="Be as detailed as possible about your goals, timeline, constraints, and preferences...",
-                height=100
-            )
-        else:
-            user_request = example_choice
-            st.info(f"Selected example: {example_choice}")
-        
-        submitted = st.form_submit_button("🚀 Create Plan", type="primary")
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Handle form submission
-    if submitted and user_request.strip():
-        # Check if we're already processing this request
-        if not st.session_state.processing:
-            st.session_state.processing = True
-            st.session_state.current_request = user_request
-            
-            # Add loading entry
-            loading_entry = {
-                "request": user_request,
-                "response": "Generating plan...",
-                "timestamp": datetime.now().isoformat()
-            }
-            st.session_state.plan_history.append(loading_entry)
-            st.rerun()
-    
-    # Process the request if we're in processing state
-    if st.session_state.processing and hasattr(st.session_state, 'current_request'):
-        try:
-            if not st.session_state.planner_llm:
-                initialize_planner_llm()
-            
-            # Get the planning response
-            response_generator = create_plan(st.session_state.current_request)
-            
-            # If create_plan returns a generator, consume it
-            if hasattr(response_generator, '__iter__') and not isinstance(response_generator, (str, bytes)):
-                response = ''.join(str(chunk) for chunk in response_generator)
-            else:
-                response = str(response_generator)
-            
-            # Update the last entry with the actual response
-            if st.session_state.plan_history and st.session_state.plan_history[-1]["response"] == "Generating plan...":
-                st.session_state.plan_history[-1]["response"] = response
-            
-        except Exception as e:
-            st.error(f"Error creating plan: {str(e)}")
-            # Remove the loading entry if there was an error
-            if st.session_state.plan_history and st.session_state.plan_history[-1]["response"] == "Generating plan...":
-                st.session_state.plan_history.pop()
-        
-        finally:
-            # Clean up processing state
-            st.session_state.processing = False
-            if hasattr(st.session_state, 'current_request'):
-                delattr(st.session_state, 'current_request')
-            st.rerun()
-
-def show_all_plans_page():
-    st.title("📋 All Your Plans")
-    
-    user_plans = load_user_plans(st.session_state.username)
-    
-    if not user_plans:
-        st.info("You haven't created any plans yet. Start by creating your first plan!")
-        if st.button("🚀 Create First Plan"):
-            st.session_state.show_all_plans = False
-            st.rerun()
-        return
-    
-    # Search and filter options
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        search_term = st.text_input("🔍 Search plans...", placeholder="Search by title or content")
-    with col2:
-        sort_order = st.selectbox("Sort by", ["Newest First", "Oldest First", "Alphabetical"])
-    
-    # Filter and sort plans
-    filtered_plans = user_plans.copy()
-    
-    if search_term:
-        filtered_plans = {
-            name: plan for name, plan in user_plans.items()
-            if search_term.lower() in plan.get('title', '').lower() or 
-               search_term.lower() in plan.get('content', '').lower()
-        }
-    
-    if sort_order == "Newest First":
-        sorted_plans = sorted(filtered_plans.items(), key=lambda x: x[1].get('created_at', ''), reverse=True)
-    elif sort_order == "Oldest First":
-        sorted_plans = sorted(filtered_plans.items(), key=lambda x: x[1].get('created_at', ''))
-    else:  # Alphabetical
-        sorted_plans = sorted(filtered_plans.items(), key=lambda x: x[1].get('title', '').lower())
-    
-    st.markdown(f"**Found {len(sorted_plans)} plan(s)**")
-    
-    # Display plans
-    for plan_name, plan_data in sorted_plans:
-        with st.container():
-            st.markdown('<div class="plan-card">', unsafe_allow_html=True)
-            
-            col1, col2, col3 = st.columns([6, 1, 1])
-            
-            with col1:
-                st.markdown(f'<div class="plan-title">{plan_data.get("title", "Untitled Plan")}</div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="plan-date">📅 Created: {plan_data.get("created_at", "Unknown")}</div>', unsafe_allow_html=True)
+            # Show workflow details in expander
+            with st.expander(f"🔍 View Agent Workflow Details #{i+1}"):
+                col1, col2 = st.columns([1, 2])
                 
-                # Show preview of content
-                content_preview = plan_data.get('content', '')[:200] + "..." if len(plan_data.get('content', '')) > 200 else plan_data.get('content', '')
-                st.markdown(f'<div class="plan-preview">{content_preview}</div>', unsafe_allow_html=True)
+                with col1:
+                    st.markdown("**Workflow Status:**")
+                    st.info(workflow.get("workflow_status", "Unknown"))
+                    
+                    st.markdown("**Task Type:**")
+                    st.info(workflow.get("task_type", "Unknown"))
+                
+                with col2:
+                    st.markdown("**Agent Outputs:**")
+                    agent_outputs = workflow.get("agent_outputs", {})
+                    
+                    for agent_name, output in agent_outputs.items():
+                        with st.expander(f"🤖 {agent_name.title()} Agent"):
+                            if output and output not in ["Skipped - not required", ""]:
+                                st.write(output[:500] + "..." if len(str(output)) > 500 else output)
+                            else:
+                                st.write("No output or skipped")
             
-            with col2:
-                if st.button("👁️ View", key=f"view_{plan_name}"):
-                    st.session_state.current_plan = plan_data
-                    st.session_state.show_all_plans = False
-                    st.rerun()
-            
-            with col3:
-                if st.button("🗑️ Delete", key=f"delete_all_{plan_name}"):
-                    delete_plan(plan_name)
-            
-            st.markdown('</div>', unsafe_allow_html=True)
             st.markdown("---")
     
-    # Back button
-    if st.button("⬅️ Back to Planner"):
-        st.session_state.show_all_plans = False
-        st.rerun()
+    # Current workflow progress
+    if st.session_state.workflow_in_progress and st.session_state.current_workflow:
+        st.markdown("### 🔄 Workflow in Progress")
+        workflow = st.session_state.current_workflow
+        
+        progress_container = st.container()
+        with progress_container:
+            st.markdown('<div class="workflow-progress">', unsafe_allow_html=True)
+            st.markdown(f"**Current Status:** {workflow.get('workflow_status', 'Processing...')}")
+            st.markdown(f"**Current Agent:** {workflow.get('current_agent', 'Unknown').title()}")
+            
+            # Progress indicators
+            agents = ["router", "researcher", "planner", "reviewer"]
+            cols = st.columns(4)
+            
+            for i, agent in enumerate(agents):
+                with cols[i]:
+                    if agent in workflow.get("agent_outputs", {}):
+                        st.success(f"✅ {agent.title()}")
+                    elif workflow.get("current_agent") == agent:
+                        st.warning(f"🔄 {agent.title()}")
+                    else:
+                        st.info(f"⏳ {agent.title()}")
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Input form
+    st.markdown("### 💭 Ask the Multi-Agent System")
+    with st.form(key='multi_agent_form', clear_on_submit=True):
+        col1, col2 = st.columns([4, 1])
+        
+        with col1:
+            user_input = st.text_area(
+                "What would you like the agents to help you with?",
+                placeholder="Examples:\n- Research renewable energy and create an implementation plan\n- Plan a career transition to data science\n- Analyze market trends for electric vehicles",
+                height=100
+            )
+        
+        with col2:
+            st.markdown("**Agent Flow:**")
+            st.markdown("1. 🎯 Router")
+            st.markdown("2. 🔍 Researcher")
+            st.markdown("3. 📋 Planner")
+            st.markdown("4. ✅ Reviewer")
+        
+        submitted = st.form_submit_button("🚀 Process with Agents", type="primary")
+    
+    # Process the request
+    if submitted and user_input.strip() and not st.session_state.workflow_in_progress:
+        st.session_state.workflow_in_progress = True
+        
+        # Create progress placeholder
+        progress_placeholder = st.empty()
+        
+        try:
+            with st.spinner("🤖 Multi-agent system processing your request..."):
+                # Process the request through the workflow
+                result = st.session_state.multi_agent_system.process_request(user_input)
+                
+                # Update session state
+                st.session_state.current_workflow = result
+                st.session_state.workflow_history.append(result)
+                
+                # Save to user data
+                save_workflow_to_user(result)
+        
+        except Exception as e:
+            st.error(f"Error processing request: {str(e)}")
+        
+        finally:
+            st.session_state.workflow_in_progress = False
+            st.rerun()
+
+def run_workflow_history():
+    st.title("📊 Workflow History")
+    
+    # Load both persistent and session workflows
+    user_workflows = load_user_workflows()
+    session_workflows = st.session_state.get('workflow_history', [])
+
+    # Convert session workflows to user_workflows format
+    for i, workflow in enumerate(session_workflows):
+        if workflow not in user_workflows.values():  # Avoid duplicates
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            workflow_id = f"session_{i}_{timestamp}"
+            user_workflows[workflow_id] = {
+                "request": workflow.get("user_request", ""),
+                "result": workflow,
+                "timestamp": timestamp
+            }
+    
+    if not user_workflows:
+        st.info("No workflow history found. Start by using the Multi-Agent Chat!")
+        return
+    
+    st.markdown(f"**Total Workflows:** {len(user_workflows)}")
+    
+    # Search and filter
+    search_term = st.text_input("🔍 Search workflows...", placeholder="Search by request content")
+    
+    # Filter workflows
+    filtered_workflows = user_workflows
+    if search_term:
+        filtered_workflows = {
+            k: v for k, v in user_workflows.items()
+            if search_term.lower() in v.get('request', '').lower()
+        }
+    
+    # Display workflows
+    for workflow_id, workflow_data in sorted(filtered_workflows.items(), reverse=True):
+        with st.expander(f"📋 {workflow_data.get('timestamp', 'Unknown')} - {workflow_data.get('request', 'No request')[:50]}..."):
+            result = workflow_data.get('result', {})
+            
+            col1, col2 = st.columns([1, 1])
+            
+            with col1:
+                st.markdown("**Request:**")
+                st.write(workflow_data.get('request', 'No request'))
+                
+                st.markdown("**Task Type:**")
+                st.info(result.get('task_type', 'Unknown'))
+                st.markdown("**Status:**")
+                st.info(result.get('workflow_status', 'Unknown'))
+            
+            with col2:
+                st.markdown("**Final Output:**")
+                st.write(result.get('final_output', 'No output')[:200] + "..." if len(str(result.get('final_output', ''))) > 200 else result.get('final_output', 'No output'))
+                
+                if st.button(f"🗑️ Delete", key=f"delete_{workflow_id}"):
+                    users = load_users()
+                    if st.session_state.username in users and "agent_workflows" in users[st.session_state.username]:
+                        del users[st.session_state.username]["agent_workflows"][workflow_id]
+                        save_users(users)
+                        st.rerun()
+
+def run_agent_status():
+    st.title("⚙️ Agent Status & Configuration")
+    
+    if not st.session_state.multi_agent_system:
+        st.warning("Multi-agent system not initialized. Please go to Multi-Agent Chat first.")
+        return
+    
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        st.markdown("### 🤖 Active Agents")
+        agents_info = {
+            "Router Agent": {"emoji": "🎯", "role": "Task Classification", "model": "llama3-70b-8192"},
+            "Research Agent": {"emoji": "🔍", "role": "Information Gathering", "model": "llama3-70b-8192"},
+            "Planning Agent": {"emoji": "📋", "role": "Strategy & Planning", "model": "llama3-70b-8192"},
+            "Review Agent": {"emoji": "✅", "role": "Quality Assurance", "model": "llama3-70b-8192"}
+        }
+        
+        for agent_name, info in agents_info.items():
+            st.markdown(f"""
+            <div class="agent-step completed">
+                <strong>{info['emoji']} {agent_name}</strong><br>
+                <small>Role: {info['role']}</small><br>
+                <small>Model: {info['model']}</small>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("### 📊 System Statistics")
+        if st.session_state.workflow_history:
+            total_workflows = len(st.session_state.workflow_history)
+            task_types = {}
+            for workflow in st.session_state.workflow_history:
+                task_type = workflow.get('task_type', 'unknown')
+                task_types[task_type] = task_types.get(task_type, 0) + 1
+            
+            st.metric("Total Workflows", total_workflows)
+            
+            st.markdown("**Task Distribution:**")
+            for task_type, count in task_types.items():
+                st.write(f"- {task_type.title()}: {count}")
+        else:
+            st.info("No workflows processed yet")
+
+# ==============================================
+# ENHANCED MULTI-AGENT SYSTEM WITH ADVANCED HANDOFF
+# ==============================================
+
+class TaskHandoffState(TypedDict):
+    messages: Annotated[List[Any], add_messages]
+    user_request: str
+    task_type: str
+    task_priority: str
+    task_complexity: str
+    research_data: str
+    research_quality_score: float
+    plan_content: str
+    plan_validation: str
+    review_feedback: str
+    final_output: str
+    current_agent: str
+    workflow_status: str
+    agent_outputs: Dict[str, str]
+    handoff_logs: List[Dict[str, str]]
+    validation_results: Dict[str, bool]
+    iteration_count: int
+    max_iterations: int
+
+class AdvancedMultiAgentSystem(MultiAgentSystem):
+    def __init__(self, api_key: str):
+        super().__init__(api_key)
+        self.create_advanced_workflow()
+    
+    def enhanced_router_agent(self, state: TaskHandoffState) -> TaskHandoffState:
+        """Enhanced router with priority and complexity analysis"""
+        try:
+            enhanced_prompt = f"""
+            {ROUTER_SYSTEM_PROMPT}
+            
+            Additionally, analyze the request for:
+            1. Priority Level (high/medium/low)
+            2. Complexity Level (simple/moderate/complex)
+            3. Estimated processing time
+            
+            Request: {state['user_request']}
+            
+            Respond in this format:
+            Task Type: [planning/research/chat/complex]
+            Priority: [high/medium/low]
+            Complexity: [simple/moderate/complex]
+            Reasoning: [brief explanation]
+            """
+            
+            messages = [
+                SystemMessage(content=enhanced_prompt),
+                HumanMessage(content=state["user_request"])
+            ]
+            
+            response = self.agents["router"].invoke(messages)
+            response_text = response.content
+            
+            # Parse response
+            task_type = "chat"
+            priority = "medium"
+            complexity = "moderate"
+            
+            for line in response_text.split('\n'):
+                if line.startswith('Task Type:'):
+                    task_type = line.split(':', 1)[1].strip().lower()
+                elif line.startswith('Priority:'):
+                    priority = line.split(':', 1)[1].strip().lower()
+                elif line.startswith('Complexity:'):
+                    complexity = line.split(':', 1)[1].strip().lower()
+            
+            state["task_type"] = task_type
+            state["task_priority"] = priority
+            state["task_complexity"] = complexity
+            state["current_agent"] = "router"
+            state["workflow_status"] = f"Task classified: {task_type} | Priority: {priority} | Complexity: {complexity}"
+            state["agent_outputs"]["router"] = response_text
+            
+            # Log handoff
+            state["handoff_logs"].append({
+                "from": "user",
+                "to": "router",
+                "timestamp": datetime.now().isoformat(),
+                "data_passed": f"User request: {state['user_request'][:50]}...",
+                "status": "completed"
+            })
+            
+            return state
+        except Exception as e:
+            state["workflow_status"] = f"Router error: {str(e)}"
+            return state
+    
+    def quality_research_agent(self, state: TaskHandoffState) -> TaskHandoffState:
+        """Research agent with quality scoring"""
+        try:
+            if state["task_type"] in ["research", "complex"]:
+                research_prompt = f"""
+                {RESEARCH_SYSTEM_PROMPT}
+                
+                Task Details:
+                - Priority: {state.get('task_priority', 'medium')}
+                - Complexity: {state.get('task_complexity', 'moderate')}
+                
+                Please provide comprehensive research and end with a quality assessment:
+                Quality Score: [0-100] - Rate the completeness and accuracy of your research
+                
+                Research Topic: {state['user_request']}
+                """
+                
+                messages = [
+                    SystemMessage(content=research_prompt),
+                    HumanMessage(content=state["user_request"])
+                ]
+                
+                response = self.agents["researcher"].invoke(messages)
+                research_content = response.content
+                
+                # Extract quality score
+                quality_score = 75.0  # default
+                lines = research_content.split('\n')
+                for line in lines:
+                    if line.startswith('Quality Score:'):
+                        try:
+                            score_text = line.split(':', 1)[1].strip()
+                            quality_score = float(score_text.split()[0])
+                        except:
+                            pass
+                
+                state["research_data"] = research_content
+                state["research_quality_score"] = quality_score
+                state["current_agent"] = "researcher"
+                state["workflow_status"] = f"Research completed (Quality: {quality_score}/100)"
+                state["agent_outputs"]["researcher"] = research_content
+                
+                # Log handoff
+                state["handoff_logs"].append({
+                    "from": "router",
+                    "to": "researcher",
+                    "timestamp": datetime.now().isoformat(),
+                    "data_passed": f"Task type: {state['task_type']}, Priority: {state['task_priority']}",
+                    "status": "completed",
+                    "quality_score": quality_score
+                })
+                
+                # Validation
+                state["validation_results"]["research_quality"] = quality_score >= 60.0
+                
+            else:
+                state["research_data"] = "No research required for this task type"
+                state["research_quality_score"] = 0.0
+                state["agent_outputs"]["researcher"] = "Skipped - not required"
+                state["validation_results"]["research_quality"] = True
+            
+            return state
+        except Exception as e:
+            state["workflow_status"] = f"Research error: {str(e)}"
+            state["validation_results"]["research_quality"] = False
+            return state
+    
+    def strategic_planning_agent(self, state: TaskHandoffState) -> TaskHandoffState:
+        """Planning agent with validation checks"""
+        try:
+            if state["task_type"] in ["planning", "complex"]:
+                planning_context = f"""
+                User Request: {state['user_request']}
+                Task Priority: {state.get('task_priority', 'medium')}
+                Task Complexity: {state.get('task_complexity', 'moderate')}
+                Research Quality Score: {state.get('research_quality_score', 0)}
+                
+                Research Data:
+                {state.get('research_data', 'No research data available')}
+                
+                Create a detailed, actionable plan. Include:
+                1. Executive Summary
+                2. Step-by-step implementation
+                3. Timeline and milestones
+                4. Risk assessment
+                5. Success metrics
+                
+                End with:
+                Plan Validation: [PASS/FAIL] - Self-assessment of plan quality
+                """
+                
+                messages = [
+                    SystemMessage(content=PLANNING_SYSTEM_PROMPT),
+                    HumanMessage(content=planning_context)
+                ]
+                
+                response = self.agents["planner"].invoke(messages)
+                plan_content = response.content
+                
+                # Extract validation
+                plan_validation = "PASS"
+                if "Plan Validation: FAIL" in plan_content:
+                    plan_validation = "FAIL"
+                
+                state["plan_content"] = plan_content
+                state["plan_validation"] = plan_validation
+                state["current_agent"] = "planner"
+                state["workflow_status"] = f"Planning completed (Validation: {plan_validation})"
+                state["agent_outputs"]["planner"] = plan_content
+                
+                # Log handoff
+                state["handoff_logs"].append({
+                    "from": "researcher",
+                    "to": "planner",
+                    "timestamp": datetime.now().isoformat(),
+                    "data_passed": f"Research data ({len(state.get('research_data', ''))} chars), Quality: {state.get('research_quality_score', 0)}",
+                    "status": "completed",
+                    "validation": plan_validation
+                })
+                
+                # Validation
+                state["validation_results"]["plan_quality"] = plan_validation == "PASS"
+                
+            else:
+                state["plan_content"] = "No planning required for this task type"
+                state["plan_validation"] = "SKIP"
+                state["agent_outputs"]["planner"] = "Skipped - not required"
+                state["validation_results"]["plan_quality"] = True
+            
+            return state
+        except Exception as e:
+            state["workflow_status"] = f"Planning error: {str(e)}"
+            state["validation_results"]["plan_quality"] = False
+            return state
+    
+    def comprehensive_review_agent(self, state: TaskHandoffState) -> TaskHandoffState:
+        """Review agent with comprehensive analysis"""
+        try:
+            review_context = f"""
+            COMPREHENSIVE REVIEW REQUEST
+            
+            Original Request: {state['user_request']}
+            Task Classification: {state.get('task_type', 'unknown')} (Priority: {state.get('task_priority', 'medium')}, Complexity: {state.get('task_complexity', 'moderate')})
+            
+            Agent Outputs to Review:
+            1. Router Output: {state['agent_outputs'].get('router', 'None')[:200]}...
+            2. Research Quality: {state.get('research_quality_score', 0)}/100
+            3. Research Data: {state.get('research_data', 'None')[:300]}...
+            4. Plan Validation: {state.get('plan_validation', 'None')}
+            5. Plan Content: {state.get('plan_content', 'None')[:300]}...
+            
+            Validation Results:
+            - Research Quality: {'✓' if state.get('validation_results', {}).get('research_quality') else '✗'}
+            - Plan Quality: {'✓' if state.get('validation_results', {}).get('plan_quality') else '✗'}
+            
+            Handoff History:
+            {json.dumps(state.get('handoff_logs', []), indent=2)}
+            
+            Please provide:
+            1. Executive summary of the complete workflow
+            2. Quality assessment of each agent's contribution
+            3. Final synthesized response
+            4. Recommendations for improvement (if any)
+            
+            Final Assessment: [EXCELLENT/GOOD/NEEDS_IMPROVEMENT]
+            """
+            
+            messages = [
+                SystemMessage(content=REVIEW_SYSTEM_PROMPT),
+                HumanMessage(content=review_context)
+            ]
+            
+            response = self.agents["reviewer"].invoke(messages)
+            review_content = response.content
+            
+            state["final_output"] = review_content
+            state["review_feedback"] = review_content
+            state["current_agent"] = "reviewer"
+            state["workflow_status"] = "Comprehensive review completed"
+            state["agent_outputs"]["reviewer"] = review_content
+            
+            # Final handoff log
+            state["handoff_logs"].append({
+                "from": "planner",
+                "to": "reviewer",
+                "timestamp": datetime.now().isoformat(),
+                "data_passed": "Complete workflow data for final review",
+                "status": "completed",
+                "final_assessment": "GOOD"  # Could be extracted from response
+            })
+            
+            return state
+        except Exception as e:
+            state["workflow_status"] = f"Review error: {str(e)}"
+            return state
+    
+    def should_iterate_workflow(self, state: TaskHandoffState) -> str:
+        """Decide if workflow needs another iteration"""
+        # Check if any validation failed and we haven't exceeded max iterations
+        validation_results = state.get("validation_results", {})
+        iteration_count = state.get("iteration_count", 0)
+        max_iterations = state.get("max_iterations", 2)
+        
+        if iteration_count >= max_iterations:
+            return "finalize"
+        
+        # If research or planning failed validation, iterate
+        if not validation_results.get("research_quality", True) or not validation_results.get("plan_quality", True):
+            state["iteration_count"] = iteration_count + 1
+            return "iterate"
+        
+        return "finalize"
+    
+    def iteration_handler(self, state: TaskHandoffState) -> TaskHandoffState:
+        """Handle workflow iteration"""
+        state["workflow_status"] = f"Iteration {state.get('iteration_count', 0) + 1} - Improving quality"
+        
+        # Add iteration log
+        state["handoff_logs"].append({
+            "from": "system",
+            "to": "iteration_handler",
+            "timestamp": datetime.now().isoformat(),
+            "data_passed": "Quality improvement iteration",
+            "status": "processing"
+        })
+        
+        return state
+    
+    def create_advanced_workflow(self):
+        """Create enhanced workflow with iterations and quality checks"""
+        workflow = StateGraph(TaskHandoffState)
+        
+        # Add nodes
+        workflow.add_node("enhanced_router", self.enhanced_router_agent)
+        workflow.add_node("quality_research", self.quality_research_agent)
+        workflow.add_node("strategic_planning", self.strategic_planning_agent)
+        workflow.add_node("comprehensive_review", self.comprehensive_review_agent)
+        workflow.add_node("iteration_handler", self.iteration_handler)
+        
+        # Add edges
+        workflow.add_edge(START, "enhanced_router")
+        
+        # Conditional routing from router
+        workflow.add_conditional_edges(
+            "enhanced_router",
+            lambda state: "quality_research" if state["task_type"] in ["research", "complex"] else "strategic_planning"
+        )
+        
+        # From research to planning
+        workflow.add_conditional_edges(
+            "quality_research",
+            lambda state: "strategic_planning" if state["task_type"] in ["planning", "complex"] else "comprehensive_review"
+        )
+        
+        # From planning to review
+        workflow.add_edge("strategic_planning", "comprehensive_review")
+        
+        # From review - check if iteration needed
+        workflow.add_conditional_edges(
+            "comprehensive_review",
+            self.should_iterate_workflow,
+            {
+                "iterate": "iteration_handler",
+                "finalize": END
+            }
+        )
+        
+        # From iteration handler back to research
+        workflow.add_edge("iteration_handler", "quality_research")
+        
+        self.workflow = workflow.compile()
+    
+    def process_advanced_request(self, user_request: str) -> Dict[str, Any]:
+        """Process request with advanced handoff system"""
+        initial_state = TaskHandoffState(
+            messages=[],
+            user_request=user_request,
+            task_type="",
+            task_priority="medium",
+            task_complexity="moderate",
+            research_data="",
+            research_quality_score=0.0,
+            plan_content="",
+            plan_validation="",
+            review_feedback="",
+            final_output="",
+            current_agent="",
+            workflow_status="Starting advanced workflow...",
+            agent_outputs={},
+            handoff_logs=[],
+            validation_results={},
+            iteration_count=0,
+            max_iterations=2
+        )
+        
+        try:
+            result = self.workflow.invoke(initial_state)
+            return result
+        except Exception as e:
+            return {
+                "final_output": f"Advanced workflow error: {str(e)}",
+                "workflow_status": "Error occurred",
+                "agent_outputs": {"error": str(e)},
+                "handoff_logs": [{"error": str(e)}]
+            }
+
+# ==============================================
+# ENHANCED UI FUNCTIONS
+# ==============================================
+
+def run_advanced_multi_agent_chat():
+    st.title("🚀 Advanced Multi-Agent System with Task Handoff")
+    st.markdown("**Enhanced system with quality validation, iterations, and detailed handoff tracking**")
+    
+    # Toggle between basic and advanced mode
+    mode = st.radio("System Mode:", ["🤖 Basic Multi-Agent", "🚀 Advanced Multi-Agent"], horizontal=True)
+    
+    if mode == "🚀 Advanced Multi-Agent":
+        # Initialize advanced system
+        if "advanced_multi_agent_system" not in st.session_state:
+            st.session_state.advanced_multi_agent_system = None
+        
+        if not st.session_state.advanced_multi_agent_system:
+            with st.spinner("Initializing advanced multi-agent system..."):
+                st.session_state.advanced_multi_agent_system = AdvancedMultiAgentSystem(DEFAULT_API_KEY)
+            st.success("Advanced multi-agent system initialized!")
+        
+        # Display workflow with handoff visualization
+        if st.session_state.workflow_history:
+            st.markdown("### 🔄 Task Handoff Visualization")
+            
+            # Get the latest workflow for visualization
+            latest_workflow = st.session_state.workflow_history[-1]
+            handoff_logs = latest_workflow.get("handoff_logs", [])
+            
+            if handoff_logs:
+                st.markdown("#### Agent Communication Flow")
+                
+                for i, log in enumerate(handoff_logs):
+                    col1, col2, col3 = st.columns([1, 2, 1])
+                    
+                    with col1:
+                        st.markdown(f"**{log.get('from', 'Unknown').title()}**")
+                    
+                    with col2:
+                        st.markdown(f"→ *{log.get('data_passed', 'No data')}* →")
+                        if log.get('quality_score'):
+                            st.markdown(f"Quality: {log['quality_score']}/100")
+                    
+                    with col3:
+                        st.markdown(f"**{log.get('to', 'Unknown').title()}**")
+                    
+                    if i < len(handoff_logs) - 1:
+                        st.markdown("---")
+        
+        # Input for advanced system
+        st.markdown("### 💭 Advanced AI Request")
+        with st.form(key='advanced_agent_form', clear_on_submit=True):
+            user_input = st.text_area(
+                "Request for Advanced Multi-Agent Processing:",
+                placeholder="Examples:\n- Create a comprehensive business plan for a sustainable energy startup\n- Research AI ethics and develop implementation guidelines\n- Analyze climate change impacts and propose mitigation strategies",
+                height=120
+            )
+            
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                submitted = st.form_submit_button("🚀 Process with Advanced Agents", type="primary")
+            with col2:
+                show_details = st.checkbox("Show Handoff Details")
+        
+        if submitted and user_input.strip():
+            with st.spinner("🔄 Advanced multi-agent system processing..."):
+                try:
+                    result = st.session_state.advanced_multi_agent_system.process_advanced_request(user_input)
+                    st.session_state.workflow_history.append(result)
+                    save_workflow_to_user(result)
+                    
+                    # Display results
+                    st.success("✅ Advanced processing completed!")
+                    
+                    # Show final output
+                    st.markdown("### 🎯 Final Output")
+                    st.markdown(f'<div class="final-output">{result.get("final_output", "No output generated")}</div>', unsafe_allow_html=True)
+                    
+                    if show_details:
+                        # Show handoff details
+                        st.markdown("### 🔍 Detailed Handoff Analysis")
+                        
+                        col1, col2 = st.columns([1, 1])
+                        
+                        with col1:
+                            st.markdown("**Task Analysis:**")
+                            st.info(f"Type: {result.get('task_type', 'Unknown')}")
+                            st.info(f"Priority: {result.get('task_priority', 'Unknown')}")
+                            st.info(f"Complexity: {result.get('task_complexity', 'Unknown')}")
+                            
+                            st.markdown("**Quality Metrics:**")
+                            research_score = result.get('research_quality_score', 0)
+                            st.metric("Research Quality", f"{research_score}/100")
+                            
+                            validation_results = result.get('validation_results', {})
+                            st.write("**Validation Results:**")
+                            for key, value in validation_results.items():
+                                st.write(f"- {key}: {'✅ Pass' if value else '❌ Fail'}")
+                        
+                        with col2:
+                            st.markdown("**Handoff Timeline:**")
+                            handoff_logs = result.get('handoff_logs', [])
+                            
+                            for log in handoff_logs:
+                                timestamp = log.get('timestamp', 'Unknown')
+                                from_agent = log.get('from', 'Unknown')
+                                to_agent = log.get('to', 'Unknown')
+                                status = log.get('status', 'Unknown')
+                                
+                                status_emoji = "✅" if status == "completed" else "🔄"
+                                
+                                st.markdown(f"""
+                                <div class="agent-step {'completed' if status == 'completed' else 'active'}">
+                                    {status_emoji} <strong>{from_agent.title()}</strong> → <strong>{to_agent.title()}</strong><br>
+                                    <small>{timestamp}</small>
+                                </div>
+                                """, unsafe_allow_html=True)
+                
+                except Exception as e:
+                    st.error(f"Error in advanced processing: {str(e)}")
+    
+    else:
+        # Run basic multi-agent chat
+        run_multi_agent_chat()
 
 # ==============================================
 # MAIN APPLICATION
@@ -1023,15 +1438,12 @@ def show_all_plans_page():
 def main():
     sidebar_controls()
     
-    # Check if showing all plans
-    if hasattr(st.session_state, 'show_all_plans') and st.session_state.show_all_plans:
-        show_all_plans_page()
-        return
-    
-    if st.session_state.app_mode == "Chat":
-        run_chatbot()
-    else:
-        run_planner()
+    if st.session_state.app_mode == "Multi-Agent Chat":
+        run_advanced_multi_agent_chat()
+    elif st.session_state.app_mode == "Workflow History":
+        run_workflow_history()
+    elif st.session_state.app_mode == "Agent Status":
+        run_agent_status()
 
 if __name__ == "__main__":
     main()

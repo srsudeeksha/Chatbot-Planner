@@ -145,12 +145,122 @@
   "1": {
     "password": "1",
     "sessions": {
-      "2025-06-26 11:51:27": {
+      "2025-06-30 10:42:11": {
         "generated": [],
         "past": []
       }
     },
-    "plans": {}
+    "plans": {},
+    "agent_sessions": {
+      "Agent Session 2025-06-27 16:51:12": [
+        {
+          "type": "user",
+          "content": "hie",
+          "timestamp": "2025-06-27T16:51:12.255990"
+        },
+        {
+          "type": "agent_response",
+          "content": "Hi there! It's nice to meet you. Is there something I can help you with or would you like to chat about something in particular? I'm all ears!",
+          "agent_reasoning": [
+            "Chat Agent: Provided conversational response"
+          ],
+          "agent_outputs": [
+            {
+              "agent": "chat",
+              "content": "Hi there! It's nice to meet you. Is there something I can help you with or would you like to chat about something in particular? I'm all ears!",
+              "timestamp": "2025-06-27T16:51:12.812221"
+            }
+          ],
+          "task_type": "chat",
+          "timestamp": "2025-06-27T16:51:12.812243"
+        },
+        {
+          "type": "user",
+          "content": "hie",
+          "timestamp": "2025-06-27T16:53:18.004269"
+        },
+        {
+          "type": "agent_response",
+          "content": "Hi there! It's nice to meet you. Is there something I can help you with or would you like to chat about something in particular? I'm all ears!",
+          "agent_reasoning": [
+            "Chat Agent: Provided conversational response"
+          ],
+          "agent_outputs": [
+            {
+              "agent": "chat",
+              "content": "Hi there! It's nice to meet you. Is there something I can help you with or would you like to chat about something in particular? I'm all ears!",
+              "timestamp": "2025-06-27T16:53:19.647212"
+            }
+          ],
+          "task_type": "chat",
+          "timestamp": "2025-06-27T16:53:19.647254"
+        },
+        {
+          "type": "user",
+          "content": "hie",
+          "timestamp": "2025-06-27T16:53:31.453770"
+        },
+        {
+          "type": "agent_response",
+          "content": "Hi there! It's nice to meet you. Is there something I can help you with or would you like to chat about something in particular? I'm all ears!",
+          "agent_reasoning": [
+            "Chat Agent: Provided conversational response"
+          ],
+          "agent_outputs": [
+            {
+              "agent": "chat",
+              "content": "Hi there! It's nice to meet you. Is there something I can help you with or would you like to chat about something in particular? I'm all ears!",
+              "timestamp": "2025-06-27T16:53:31.762676"
+            }
+          ],
+          "task_type": "chat",
+          "timestamp": "2025-06-27T16:53:31.762694"
+        },
+        {
+          "type": "user",
+          "content": "hello",
+          "timestamp": "2025-06-27T16:53:41.340188"
+        },
+        {
+          "type": "agent_response",
+          "content": "Hello! It's great to chat with you. How's your day going so far? Is there something on your mind that you'd like to talk about, or are you just looking for some conversation? I'm here to listen and help if I can.",
+          "agent_reasoning": [
+            "Chat Agent: Provided conversational response"
+          ],
+          "agent_outputs": [
+            {
+              "agent": "chat",
+              "content": "Hello! It's great to chat with you. How's your day going so far? Is there something on your mind that you'd like to talk about, or are you just looking for some conversation? I'm here to listen and help if I can.",
+              "timestamp": "2025-06-27T16:53:41.697540"
+            }
+          ],
+          "task_type": "chat",
+          "timestamp": "2025-06-27T16:53:41.697579"
+        },
+        {
+          "type": "user",
+          "content": "hello",
+          "timestamp": "2025-06-27T16:53:46.935622"
+        },
+        {
+          "type": "agent_response",
+          "content": "Hello! It's great to chat with you. How's your day going so far? Is there something on your mind that you'd like to talk about, or are you just looking for some conversation? I'm here to listen and help if I can.",
+          "agent_reasoning": [
+            "Chat Agent: Provided conversational response"
+          ],
+          "agent_outputs": [
+            {
+              "agent": "chat",
+              "content": "Hello! It's great to chat with you. How's your day going so far? Is there something on your mind that you'd like to talk about, or are you just looking for some conversation? I'm here to listen and help if I can.",
+              "timestamp": "2025-06-27T16:53:47.270788"
+            }
+          ],
+          "task_type": "chat",
+          "timestamp": "2025-06-27T16:53:47.270808"
+        }
+      ]
+    },
+    "agent_workflows": {}
   },
   "2": {
     "password": "2",
