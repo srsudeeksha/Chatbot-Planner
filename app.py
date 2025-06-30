@@ -19,11 +19,12 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
 import asyncio
 import uuid
-
+import os
+groq_api_key = os.getenv('GROQ_API_KEY')
 # ==============================================
 # CONFIGURATION
 # ==============================================
-DEFAULT_API_KEY = "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"
+
 USERS_FILE = "users.json"
 st.set_page_config(page_title='Multi-Agent System', layout='wide', initial_sidebar_state="expanded")
 
@@ -693,7 +694,7 @@ def run_multi_agent_chat():
     # Initialize multi-agent system
     if not st.session_state.multi_agent_system:
         with st.spinner("Initializing multi-agent system..."):
-            st.session_state.multi_agent_system = MultiAgentSystem(DEFAULT_API_KEY)
+            st.session_state.multi_agent_system = MultiAgentSystem(groq_api_key)
         st.success("Multi-agent system initialized!")
     
     # Display workflow history
@@ -1325,7 +1326,7 @@ def run_advanced_multi_agent_chat():
         
         if not st.session_state.advanced_multi_agent_system:
             with st.spinner("Initializing advanced multi-agent system..."):
-                st.session_state.advanced_multi_agent_system = AdvancedMultiAgentSystem(DEFAULT_API_KEY)
+                st.session_state.advanced_multi_agent_system = AdvancedMultiAgentSystem(groq_api_key)
             st.success("Advanced multi-agent system initialized!")
         
         # Display workflow with handoff visualization
