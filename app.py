@@ -20,11 +20,11 @@ from langchain_core.prompts import ChatPromptTemplate
 import asyncio
 import uuid
 import os
-groq_api_key = os.getenv('GROQ_API_KEY')
+
 # ==============================================
 # CONFIGURATION
 # ==============================================
-
+groq_api_key = os.getenv('GROQ_API_KEY')
 USERS_FILE = "users.json"
 st.set_page_config(page_title='Multi-Agent System', layout='wide', initial_sidebar_state="expanded")
 
